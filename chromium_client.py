@@ -4,6 +4,9 @@ import os
 from typing import Callable, Dict, Any
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from client import Client
+from datetime import datetime, timezone
+
+
 
 
 class ChromiumClient(Client):
@@ -56,7 +59,7 @@ class ChromiumClient(Client):
         - Clears existing cookies
         """
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=False)
+        self.browser = await self.playwright.chromium.launch(headless=True)
         self.context = await self.browser.new_context()
         self.page = await self.context.new_page()
         self.client = await self.context.new_cdp_session(self.page)
@@ -97,6 +100,12 @@ class ChromiumClient(Client):
     ) -> None:
         """
         Capture all cookies and save to JSON file with metadata.
+        Keeps expiration/session metadata.
+
+        Collects:
+        - session vs persistent cookies
+        - expiration timestamps
+        - cookie lifetime in seconds/days
         
         Args:
             output_dir: Directory to save the output file
@@ -108,15 +117,96 @@ class ChromiumClient(Client):
         cookies = response.get('cookies', [])
         
         print(f"Found {len(cookies)} cookies.")
-        
+
+
+        now = datetime.now(timezone.utc)
+        now_ts = now.timestamp()
+
+        cookies_metadata = []
+
+        num_session = 0
+        num_persistent = 0
+        lifetime_values = []
+
+        for cookie in cookies:
+            is_session = cookie.get("session", False)
+            expires = cookie.get("expires", -1)
+
+            # Session cookies do not persist after session close
+            if is_session or expires == -1:
+                num_session += 1
+                cookie_type = "session"
+                expiration_datetime = None
+                lifetime_seconds = None
+                lifetime_days = None
+
+            else:
+                num_persistent += 1
+                cookie_type = "persistent"
+
+                expiration_datetime = datetime.fromtimestamp(
+                    expires,
+                    tz=timezone.utc
+                ).isoformat()
+
+            lifetime_seconds = expires - now_ts
+            lifetime_days = lifetime_seconds / 86400
+
+            if lifetime_days >= 0:
+                lifetime_values.append(lifetime_days)
+
+            single_cookie_metadata = {
+                "name": cookie.get("name"),
+                "domain": cookie.get("domain"),
+                "session": is_session,
+                "cookie_type": cookie_type,
+                "secure": cookie.get("secure"),
+                "httpOnly": cookie.get("httpOnly"),
+                "sameSite": cookie.get("sameSite"),
+                "expires_unix": expires,
+                "expiration_datetime": expiration_datetime,
+                "lifetime_seconds": lifetime_seconds,
+                "lifetime_days": lifetime_days
+            }
+
+            cookies_metadata.append(single_cookie_metadata)
+
+        avg_lifetime_days = (
+            sum(lifetime_values) / len(lifetime_values)
+            if lifetime_values else None
+        )
+
+        max_lifetime_days = (
+            max(lifetime_values)
+            if lifetime_values else None
+        )
+
+        min_lifetime_days = (
+            min(lifetime_values)
+            if lifetime_values else None
+        )
+
+        output_data = {
+            "site_metadata": {
+                "target_url": params.get("target_url"),
+                "collection_timestamp": now.isoformat(),
+                "wait_time_seconds": params.get("wait_time_seconds"),
+                "total_cookies": len(cookies_metadata),
+                "num_session": num_session,
+                "num_persistent": num_persistent,
+                "avg_lifetime_days": avg_lifetime_days,
+                "min_lifetime_days": min_lifetime_days,
+                "max_lifetime_days": max_lifetime_days
+            },
+            "cookies": cookies_metadata
+        }
+
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
             output_path = os.path.join(output_dir, output_name)
         else:
             output_path = output_name
         
-        output_data = {**params, 'cookies': cookies}       
-        print(f"Writing data to {output_path}...")
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=4)
         
