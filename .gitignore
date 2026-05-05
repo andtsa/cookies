@@ -1,1 +1,5 @@
 cookies_data/
+.idea/
+*__pycache__/
+*.pyc
+list_websites_1M.csv
