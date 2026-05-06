@@ -28,7 +28,7 @@ class ClientUtils:
         """
         self.browser_paths = browser_paths
     
-    def getClient(self, browser_type: Browser) -> Client:
+    def get_client(self, browser_type: Browser) -> Client:
         """
         Get a client instance for the specified browser type.
         
