@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from client import Client
 
@@ -21,13 +21,15 @@ class ChromiumClient(Client):
         self.page: Page = None
         self.client = None
     
-    async def visitPage(
+    async def visit_page(
         self, 
         url: str, 
         behavior: Callable, 
         on_close: Callable, 
         params: Dict[str, Any], 
-        output_args: Dict[str, Any]
+        output_args: Dict[str, Any],
+        timeout_ms: Optional[int] = 10000,
+        headless: Optional[bool] = False
     ) -> None:
         """
         Orchestrate the complete page visit workflow.
@@ -35,17 +37,16 @@ class ChromiumClient(Client):
         Executes: setup → navigate → behavior → on_close sequence
         """
         try:
-            await self._setup()
-            await self._navigate_to_page(url)
+            await self._setup(headless=headless)
+            await self._navigate_to_page(url, timeout_ms=timeout_ms)
             await behavior(self, params)
             await on_close(self, output_args)
         except Exception as e:
             print(f"Error during page visit: {e}")
-            if self.browser:
-                await self.browser.close()
+            await self._on_close_empty()
             raise
     
-    async def _setup(self) -> None:
+    async def _setup(self, headless: Optional[bool] = False) -> None:
         """
         Initialize Chromium browser with CDP session.
         
@@ -56,7 +57,7 @@ class ChromiumClient(Client):
         - Clears existing cookies
         """
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=False)
+        self.browser = await self.playwright.chromium.launch(headless=headless)
         self.context = await self.browser.new_context()
         self.page = await self.context.new_page()
         self.client = await self.context.new_cdp_session(self.page)
@@ -68,15 +69,16 @@ class ChromiumClient(Client):
 
         print("Browser setup complete.")
     
-    async def _navigate_to_page(self, url: str) -> None:
+    async def _navigate_to_page(self, url: str, timeout_ms: Optional[int] = 10000) -> None:
         """
         Navigate to the target URL using CDP.
         
         Args:
             url: The target URL to navigate to
+            timeout_ms: Timeout in milliseconds for page load
         """
         print(f"Navigating to {url}...")
-        await self.client.send('Page.navigate', {'url': url})
+        await self.page.goto(url, wait_until='load', timeout=timeout_ms)
     
     async def _behavior_non_interactive(self, milliseconds: int) -> None:
         """

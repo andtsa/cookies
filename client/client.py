@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, Optional
 
 
 class Client(ABC):
@@ -11,13 +11,15 @@ class Client(ABC):
     """
     
     @abstractmethod
-    async def visitPage(
+    async def visit_page(
         self, 
         url: str, 
         behavior: Callable, 
         on_close: Callable, 
         params: Dict[str, Any], 
-        output_args: Dict[str, Any]
+        output_args: Dict[str, Any],
+        timeout_ms: Optional[int] = 10000,
+        headless: Optional[bool] = False,
     ) -> None:
         """
         Orchestrate a complete page visit workflow.
@@ -28,11 +30,13 @@ class Client(ABC):
             on_close: Callback function to execute before closing browser (e.g., snapshot data)
             params: Parameters to pass to the behavior callback
             output_args: Arguments to pass to the on_close callback
+            timeout_ms: Timeout in milliseconds for page load
+            headless: Whether to run the browser in headless mode
         """
         pass
     
     @abstractmethod
-    async def _setup(self) -> None:
+    async def _setup(self, headless: Optional[bool] = False) -> None:
         """
         Initialize the browser, context, and any required sessions.
         
@@ -46,12 +50,13 @@ class Client(ABC):
         pass
     
     @abstractmethod
-    async def _navigate_to_page(self, url: str) -> None:
+    async def _navigate_to_page(self, url: str, timeout_ms: Optional[int] = 10000) -> None:
         """
         Navigate to the specified URL.
         
         Args:
             url: The target URL to navigate to
+            timeout_ms: Timeout in milliseconds for page load
         """
         pass
     
