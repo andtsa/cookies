@@ -2,8 +2,7 @@ import asyncio
 import csv
 import os
 
-from get_cookies import runForPage
-from client_utils import Browser
+from client.client_utils import Browser, ClientUtils
 
 
 async def process_sites(csv_path: str, limit: int = 500):
@@ -34,7 +33,7 @@ async def process_sites(csv_path: str, limit: int = 500):
             print(f"[{i+1}/{limit}] Processing {url}")
 
             try:
-                await runForPage(
+                await ClientUtils.run_for_page(
                     url=url,
                     wait_time_ms=5000,
                     output_dir="../cookies_data",
