@@ -3,7 +3,7 @@ import json
 import os
 from typing import Callable, Dict, Any, Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
-from client import Client
+from .client import Client
 
 
 class ChromiumClient(Client):

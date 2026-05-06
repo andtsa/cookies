@@ -1,84 +1,74 @@
+import argparse
 import asyncio
-from typing import Dict, Any, Optional
-from client_utils import ClientUtils, Browser
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from client.client_utils import ClientUtils, Browser
 
 
-async def run_for_page(
-    url: str,
-    wait_time_ms: int,
-    output_dir: str,
-    output_name: str,
-    browser: Browser,
-    params: Dict[str, Any],
-    timeout_ms: Optional[int] = 10000,
-    headless: Optional[bool] = False
-) -> None:
-    """
-    Execute a page visit workflow with specified browser and behavior.
-    
-    Args:
-        url: Target URL to visit
-        wait_time_ms: Time to wait on page in milliseconds
-        output_dir: Directory to save output file (empty string for current dir)
-        output_name: Name of output file
-        browser: Browser type to use (from Browser enum)
-        params: Additional metadata to include in output JSON
-    """
-    client_utils = ClientUtils(browser_paths={})
-    client = client_utils.get_client(browser)
-    
-    async def behavior_callback(client_instance, behavior_params):
-        await client_instance._behavior_non_interactive(behavior_params['wait_time_ms'])
-    
-    async def on_close_callback(client_instance, close_args):
-        await client_instance._on_close_get_cookies_snapshot(
-            output_dir=close_args['output_dir'],
-            output_name=close_args['output_name'],
-            params=close_args['params']
-        )
-    
-    try:
-        await client.visit_page(
-            url=url,
-            behavior=behavior_callback,
-            on_close=on_close_callback,
-            params={'wait_time_ms': wait_time_ms},
-            output_args={
-                'output_dir': output_dir,
-                'output_name': output_name,
-                'params': params
-            },
-            timeout_ms=timeout_ms,
-            headless=headless
-        )
-    except Exception as e:
-        print(f"Error during page visit: {e}")
-        await client._on_close_empty()
-
-
-async def main():
-    target_url = 'https://www.nytimes.com'
-    wait_time_seconds = 20
-    output_file = 'nyt.json'
-    
-    wait_time_ms = wait_time_seconds * 1000
-    
-    #  metadata to include in output
-    params = {
-        'target_url': target_url,
-        'wait_time_seconds': wait_time_seconds
-    }
-    await run_for_page(
-        url=target_url,
-        wait_time_ms=wait_time_ms,
-        output_dir='cookies_data',
-        output_name=output_file,
-        browser=Browser.CHROMIUM,
-        params=params,
-        timeout_ms=10000,
-        headless=False
+def main():
+    parser = argparse.ArgumentParser(
+        description='Collect cookies from a list of websites provided via CSV.'
     )
+    parser.add_argument(
+        'source_file_path',
+        help='Path to the CSV file containing URLs to process.'
+    )
+    parser.add_argument(
+        '--output-dir',
+        default='cookies_data',
+        help='Directory to write output JSON files to (default: cookies_data).'
+    )
+    parser.add_argument(
+        '--browser',
+        choices=[b.value for b in Browser],
+        default=Browser.CHROMIUM.value,
+        help='Browser to use for visiting pages (default: chromium).'
+    )
+    parser.add_argument(
+        '--timeout-ms',
+        type=int,
+        default=10000,
+        help='Page load timeout in milliseconds (default: 10000).'
+    )
+    parser.add_argument(
+        '--wait-time-ms',
+        type=int,
+        default=5000,
+        help='Time to wait on each page after load in milliseconds (default: 5000).'
+    )
+    parser.add_argument(
+        '--headless',
+        action='store_true',
+        help='Run browser in headless mode.'
+    )
+    parser.add_argument(
+        '--limit',
+        type=int,
+        default=None,
+        help='Maximum number of URLs to process.'
+    )
+    parser.add_argument(
+        '--concurrency',
+        type=int,
+        default=1,
+        help='Number of websites to process simultaneously (default: 1).'
+    )
+
+    args = parser.parse_args()
+    browser = Browser(args.browser)
+
+    asyncio.run(ClientUtils.process_batch_from_csv(
+        source_file_path=args.source_file_path,
+        output_dir=args.output_dir,
+        browser=browser,
+        timeout_ms=args.timeout_ms,
+        headless=args.headless,
+        limit=args.limit,
+        wait_time_ms=args.wait_time_ms,
+        concurrency=args.concurrency
+    ))
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
