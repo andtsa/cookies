@@ -1,8 +1,8 @@
 cookies_data/
+cookies_data_processed/
 __pycache__/
 .DS_Store
 .idea/
 .vscode/
 .zed/
 *.todo
-

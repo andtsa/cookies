@@ -2,20 +2,27 @@ import json
 import os
 import argparse
 from urllib.parse import urlparse
+import tldextract
 
 
 def get_base_domain(hostname):
     """
-    Very simple base domain extraction. 
-    For better results, one should use tldextract.
+    Extract registrable domain using tldextract.
+
+    Examples:
+        www.nytimes.com -> nytimes.com
+        et.nytimes.com -> nytimes.com
+        news.bbc.co.uk -> bbc.co.uk
     """
     if not hostname:
-        return ""
-    parts = hostname.split('.')
-    if len(parts) > 2:
-        # This is a naive approximation (e.g., fails for .co.uk)
-        return ".".join(parts[-2:])
-    return hostname
+        raise ValueError("Hostname is empty")
+
+    extracted = tldextract.extract(hostname.lstrip('.'))
+
+    if not extracted.domain or not extracted.suffix:
+        raise ValueError(f"Invalid hostname: {hostname}")
+
+    return f"{extracted.domain}.{extracted.suffix}"
 
 
 def is_first_party(target_hostname, cookie_domain):
@@ -24,11 +31,14 @@ def is_first_party(target_hostname, cookie_domain):
     A cookie is first-party if it shares the same base (registrable) domain 
     as the target hostname.
     """
-    if not cookie_domain or not target_hostname:
-        return False
+    if not cookie_domain:
+        raise ValueError("Cookie domain missing")
+
+    if not target_hostname:
+        raise ValueError("Target hostname missing")
     
     target_base = get_base_domain(target_hostname.lower())
-    cookie_base = get_base_domain(cookie_domain.lstrip('.').lower())
+    cookie_base = get_base_domain(cookie_domain.lower())
     
     return target_base == cookie_base
 
@@ -67,10 +77,15 @@ def process_cookies(input_dir, output_dir):
             for cookie in cookies:
                 cookie_domain = cookie.get('domain', '')
                 
-                if is_first_party(target_hostname, cookie_domain):
-                    party_type = 'first_party'
-                else:
-                    party_type = 'third_party'
+                try:
+                    if is_first_party(target_hostname, cookie_domain):
+                        party_type = 'first_party'
+                    else:
+                        party_type = 'third_party'
+
+                except ValueError as e:
+                    print(f"Skipping cookie due to error: {e}")
+                    party_type = 'unknown'
                 
                 processed_cookie = {**cookie, 'party_type': party_type}
                 processed_cookies.append(processed_cookie)
