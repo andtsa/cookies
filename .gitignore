@@ -1,8 +1,10 @@
 cookies_data/
-__pycache__/
 .DS_Store
 .idea/
 .vscode/
 .zed/
 *.todo
+*__pycache__/
+*.pyc
+list_websites_1M.csv
 
