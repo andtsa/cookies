@@ -1,4 +1,5 @@
 cookies_data/
+cookies_data_processed/
 .DS_Store
 .idea/
 .vscode/
