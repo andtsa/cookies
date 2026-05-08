@@ -1,6 +1,9 @@
 import asyncio
 import csv
 import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from client.client_utils import Browser, ClientUtils
 
@@ -39,7 +42,8 @@ async def process_sites(csv_path: str, limit: int = 500):
                     output_dir="../cookies_data",
                     output_name=output_name,
                     browser=Browser.CHROMIUM,
-                    params=params
+                    params=params,
+                    headless = True
                 )
 
             except Exception as e:
@@ -52,8 +56,7 @@ async def process_sites(csv_path: str, limit: int = 500):
 
 
 async def main():
-    await process_sites("../list_websites_1M.csv", limit=500)
-
+    await process_sites("list_websites_1M.csv", limit=500)
 
 if __name__ == "__main__":
     asyncio.run(main())
