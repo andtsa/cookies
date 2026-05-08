@@ -6,3 +6,7 @@ __pycache__/
 .vscode/
 .zed/
 *.todo
+*__pycache__/
+*.pyc
+list_websites_1M.csv
+
