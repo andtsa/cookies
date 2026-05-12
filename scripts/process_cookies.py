@@ -61,10 +61,14 @@ def process_cookies(input_dir, output_dir):
                     print(f"Error decoding {filename}, skipping.")
                     continue
 
+<<<<<<< HEAD
             site_metadata = data.get('site_metadata', {})
 
             target_url = site_metadata.get('target_url')
 
+=======
+            target_url = data.get('target_url')
+>>>>>>> 607a96a46acb4b45722d477e75934ac4836ceeaf
             if not target_url:
                 print(f"No target_url in {filename}, skipping.")
                 continue
@@ -106,6 +110,7 @@ def process_cookies(input_dir, output_dir):
 
 
 def main():
+<<<<<<< HEAD
 
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -133,6 +138,14 @@ def main():
     print(f"Input directory: {args.input_dir}")
     print(f"Output directory: {args.output_dir}")
 
+=======
+    parser = argparse.ArgumentParser(description='Categorize cookies as first or third party.')
+    parser.add_argument('--input-dir', default='cookies_data', help='Directory containing raw cookie JSON files.')
+    parser.add_argument('--output-dir', default='cookies_data_processed', help='Directory to save processed JSON files.')
+    
+    args = parser.parse_args()
+    
+>>>>>>> 607a96a46acb4b45722d477e75934ac4836ceeaf
     if not os.path.exists(args.input_dir):
         print(f"Input directory '{args.input_dir}' does not exist.")
         return
