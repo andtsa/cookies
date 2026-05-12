@@ -84,6 +84,7 @@ def load_cookie_data(data_dir: str) -> tuple[pd.DataFrame, pd.DataFrame]:
                 "httpOnly":       cookie.get("httpOnly", False),
                 "sameSite":       cookie.get("sameSite"),
                 "lifetime_days":  cookie.get("lifetime_days", 0),
+                "party_type":     cookie.get("party_type", "unknown"),
             })
 
     sites_df   = pd.DataFrame(site_rows)

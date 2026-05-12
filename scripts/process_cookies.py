@@ -61,7 +61,10 @@ def process_cookies(input_dir, output_dir):
                     print(f"Error decoding {filename}, skipping.")
                     continue
 
-            target_url = data.get('target_url')
+            site_metadata = data.get('site_metadata', {})
+
+            target_url = site_metadata.get('target_url')
+
             if not target_url:
                 print(f"No target_url in {filename}, skipping.")
                 continue
@@ -103,12 +106,33 @@ def process_cookies(input_dir, output_dir):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Categorize cookies as first or third party.')
-    parser.add_argument('--input-dir', default='cookies_data', help='Directory containing raw cookie JSON files.')
-    parser.add_argument('--output-dir', default='cookies_data_processed', help='Directory to save processed JSON files.')
-    
+
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    default_input = os.path.join(BASE_DIR, "cookies_data")
+    default_output = os.path.join(BASE_DIR, "cookies_data_processed")
+
+    parser = argparse.ArgumentParser(
+        description='Categorize cookies as first or third party.'
+    )
+
+    parser.add_argument(
+        '--input-dir',
+        default=default_input,
+        help='Directory containing raw cookie JSON files.'
+    )
+
+    parser.add_argument(
+        '--output-dir',
+        default=default_output,
+        help='Directory to save processed JSON files.'
+    )
+
     args = parser.parse_args()
-    
+
+    print(f"Input directory: {args.input_dir}")
+    print(f"Output directory: {args.output_dir}")
+
     if not os.path.exists(args.input_dir):
         print(f"Input directory '{args.input_dir}' does not exist.")
         return
