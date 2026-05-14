@@ -1,5 +1,6 @@
 cookies_data/
 cookies_data_processed/
+data/
 __pycache__/
 .DS_Store
 .idea/

@@ -39,8 +39,9 @@ def main():
     )
     parser.add_argument(
         '--headless',
-        action='store_true',
-        help='Run browser in headless mode.'
+        type=bool,
+        default=True,
+        help='Whether to run the browser in headless mode (default: True).'
     )
     parser.add_argument(
         '--limit',

@@ -108,6 +108,8 @@ class ClientUtils:
 
         async def process_one(url: str) -> None:
             async with semaphore:
+                if not urlparse(url).scheme:
+                    url = 'https://' + url
                 netloc = urlparse(url).netloc or url
                 safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', netloc) + '.json'
                 print(f"Processing {url} -> {safe_name}")
@@ -141,14 +143,21 @@ class ClientUtils:
             reader = csv.DictReader(f)
             url_col = next(
                 (c for c in _URL_COLUMNS if c in (reader.fieldnames or [])),
-                (reader.fieldnames or [None])[0]
+                None
             )
-            if url_col is None:
-                raise ValueError(f"CSV '{source_file_path}' has no columns.")
-            for row in reader:
-                value = row.get(url_col, '').strip()
-                if value:
-                    websites.append(value)
+            if url_col is not None:
+                for row in reader:
+                    value = row.get(url_col, '').strip()
+                    if value:
+                        websites.append(value)
+            else:
+                # no recognized header —> treat as headerless CSV, assume domain in column index 1
+                f.seek(0)
+                for row in csv.reader(f):
+                    if len(row) >= 2:
+                        value = row[1].strip()
+                        if value:
+                            websites.append(value)
         await ClientUtils.process_batch(
             websites=websites,
             output_dir=output_dir,
