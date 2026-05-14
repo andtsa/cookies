@@ -1,29 +1,29 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, Any, Optional
+from typing import Any, Callable, Dict, Optional
 
 
 class Client(ABC):
     """
     Abstract base class defining the interface for browser automation clients.
-    
-    Provides a contract for setting up browsers, navigating to pages, 
+
+    Provides a contract for setting up browsers, navigating to pages,
     executing behaviors, and handling cleanup with custom callbacks.
     """
-    
+
     @abstractmethod
     async def visit_page(
-        self, 
-        url: str, 
-        behavior: Callable, 
-        on_close: Callable, 
-        params: Dict[str, Any], 
+        self,
+        url: str,
+        behavior: Callable,
+        on_close: Callable,
+        params: Dict[str, Any],
         output_args: Dict[str, Any],
         timeout_ms: Optional[int] = 10000,
         headless: Optional[bool] = False,
     ) -> None:
         """
         Orchestrate a complete page visit workflow.
-        
+
         Args:
             url: The target URL to visit
             behavior: Callback function to execute after page load (e.g., waiting, clicking)
@@ -34,12 +34,12 @@ class Client(ABC):
             headless: Whether to run the browser in headless mode
         """
         pass
-    
+
     @abstractmethod
     async def _setup(self, headless: Optional[bool] = False) -> None:
         """
         Initialize the browser, context, and any required sessions.
-        
+
         This should handle:
         - Launching the browser
         - Creating browser context and page
@@ -48,45 +48,44 @@ class Client(ABC):
         - Clearing initial state (e.g., cookies)
         """
         pass
-    
+
     @abstractmethod
-    async def _navigate_to_page(self, url: str, timeout_ms: Optional[int] = 10000) -> None:
+    async def _navigate_to_page(
+        self, url: str, timeout_ms: Optional[int] = 10000
+    ) -> None:
         """
         Navigate to the specified URL.
-        
+
         Args:
             url: The target URL to navigate to
             timeout_ms: Timeout in milliseconds for page load
         """
         pass
-    
+
     @abstractmethod
     async def _behavior_non_interactive(self, milliseconds: int) -> None:
         """
         Execute a passive wait behavior (non-interactive).
-        
+
         Args:
             milliseconds: Duration to wait in milliseconds
         """
         pass
-    
+
     @abstractmethod
     async def _on_close_get_cookies_snapshot(
-        self, 
-        output_dir: str, 
-        output_name: str, 
-        params: Dict[str, Any]
+        self, output_dir: str, output_name: str, params: Dict[str, Any]
     ) -> None:
         """
         Capture cookies and write to JSON file before closing browser.
-        
+
         Args:
             output_dir: Directory to save the output file
             output_name: Name of the output file
             params: Additional metadata to include in the output JSON
         """
         pass
-    
+
     @abstractmethod
     async def _on_close_empty(self) -> None:
         """

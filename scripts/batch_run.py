@@ -6,9 +6,12 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from client.client_utils import Browser, ClientUtils
+from client.trackers import Detections, TrackerList
 
 
-async def process_sites(csv_path: str, limit: int = 500):
+async def process_sites(
+    csv_path: str, limit: int = 500, tracker_list: TrackerList | None = None
+):
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
 
@@ -27,13 +30,9 @@ async def process_sites(csv_path: str, limit: int = 500):
                 print(f"Skipping {domain}, already collected.")
                 continue
 
-            params = {
-                "target_url": url,
-                "rank": rank,
-                "wait_time_seconds": 5
-            }
+            params = {"target_url": url, "rank": rank, "wait_time_seconds": 5}
 
-            print(f"[{i+1}/{limit}] Processing {url}")
+            print(f"[{i + 1}/{limit}] Processing {url}")
 
             try:
                 await ClientUtils.run_for_page(
@@ -43,7 +42,8 @@ async def process_sites(csv_path: str, limit: int = 500):
                     output_name=output_name,
                     browser=Browser.CHROMIUM,
                     params=params,
-                    headless = True
+                    headless=True,
+                    tracker_list=tracker_list,
                 )
 
             except Exception as e:
@@ -56,7 +56,11 @@ async def process_sites(csv_path: str, limit: int = 500):
 
 
 async def main():
-    await process_sites("list_websites_1M.csv", limit=500)
+    tracker_list = TrackerList()
+    tracker_list.load(cache_dir=".tracker_cache", trackers={Detections.OpenCookieDB, Detections.EasyPrivacy})
+
+    await process_sites("list_websites_1M.csv", limit=500, tracker_list=tracker_list)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

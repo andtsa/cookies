@@ -1,11 +1,13 @@
 import asyncio
 import json
 import os
-from typing import Callable, Dict, Any, Optional
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from datetime import datetime, timezone
+from typing import Any, Callable, Dict, Optional
+
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from .client import Client
+from .trackers import TrackerList
 
 
 class ChromiumClient(Client):
@@ -16,22 +18,25 @@ class ChromiumClient(Client):
     like cookie management and network monitoring.
     """
 
-    def __init__(self):
+    def __init__(self, tracker_list: Optional[TrackerList] = None):
         self.playwright = None
-        self.browser: Browser = None
-        self.context: BrowserContext = None
-        self.page: Page = None
+        self.browser: Browser | None = None
+        self.context: BrowserContext | None = None
+        self.page: Page | None = None
         self.client = None
+        # tracker list for annotating cookies with `is_tracker`
+        # if None, is_tracker will not be included in the output JSON
+        self.tracker_list = tracker_list
 
     async def visit_page(
-            self,
-            url: str,
-            behavior: Callable,
-            on_close: Callable,
-            params: Dict[str, Any],
-            output_args: Dict[str, Any],
-            timeout_ms: Optional[int] = 10000,
-            headless: Optional[bool] = False
+        self,
+        url: str,
+        behavior: Callable,
+        on_close: Callable,
+        params: Dict[str, Any],
+        output_args: Dict[str, Any],
+        timeout_ms: Optional[int] = 10000,
+        headless: Optional[bool] = False,
     ) -> None:
         """
         Orchestrate the complete page visit workflow.
@@ -65,13 +70,16 @@ class ChromiumClient(Client):
         self.client = await self.context.new_cdp_session(self.page)
 
         # Enable required CDP domains
-        await self.client.send('Page.enable')
-        await self.client.send('Network.enable')
-        await self.client.send('Network.clearBrowserCookies')
+        await self.client.send("Page.enable")
+        await self.client.send("Network.enable")
+        await self.client.send("Network.clearBrowserCookies")
 
         print("Browser setup complete.")
 
-    async def _navigate_to_page(self, url: str, timeout_ms: Optional[int] = 10000) -> None:
+    async def _navigate_to_page(
+        self, url: str, timeout_ms: Optional[int] = 10000
+    ) -> None:
+        assert self.page is not None, "Page not initialized"
         """
         Navigate to the target URL using CDP.
 
@@ -80,7 +88,7 @@ class ChromiumClient(Client):
             timeout_ms: Timeout in milliseconds for page load
         """
         print(f"Navigating to {url}...")
-        await self.page.goto(url, wait_until='load', timeout=timeout_ms)
+        await self.page.goto(url, wait_until="load", timeout=timeout_ms)
 
     async def _behavior_non_interactive(self, milliseconds: int) -> None:
         """
@@ -94,28 +102,33 @@ class ChromiumClient(Client):
         await asyncio.sleep(seconds)
 
     async def _on_close_get_cookies_snapshot(
-            self,
-            output_dir: str,
-            output_name: str,
-            params: Dict[str, Any]
+        self, output_dir: str, output_name: str, params: Dict[str, Any]
     ) -> None:
+        assert self.context is not None, "Context not initialized"
+        assert (
+            self.client is not None
+            and self.browser is not None
+            and self.playwright is not None
+        ), "Client not initialized"
+
         """
         Capture all cookies and save to JSON file with metadata.
-        Keeps expiration/session metadata.
 
         Collects:
         - session vs persistent cookies
         - expiration timestamps
         - cookie lifetime in seconds/days
+        - security flags (Secure, HttpOnly, SameSite)
+        - is_tracker annotation (if a TrackerList was provided)
 
         Args:
             output_dir: Directory to save the output file
             output_name: Name of the output file
             params: Additional metadata to include in the output JSON
         """
-        print('Taking cookie snapshot...')
-        response = await self.client.send('Network.getAllCookies')
-        cookies = response.get('cookies', [])
+        print("Taking cookie snapshot...")
+        response = await self.client.send("Network.getAllCookies")
+        cookies = response.get("cookies", [])
 
         print(f"Found {len(cookies)} cookies.")
 
@@ -126,11 +139,14 @@ class ChromiumClient(Client):
 
         num_session = 0
         num_persistent = 0
+        num_trackers = 0
         lifetime_values = []
 
         for cookie in cookies:
             is_session = cookie.get("session", False)
             expires = cookie.get("expires", -1)
+            cookie_domain = cookie.get("domain", "")
+            cookie_name = cookie.get("name", "")
 
             # Session cookies do not persist after session close
             if is_session or expires == -1:
@@ -145,19 +161,28 @@ class ChromiumClient(Client):
                 cookie_type = "persistent"
 
                 expiration_datetime = datetime.fromtimestamp(
-                    expires,
-                    tz=timezone.utc
+                    expires, tz=timezone.utc
                 ).isoformat()
 
-            lifetime_seconds = expires - now_ts
-            lifetime_days = lifetime_seconds / 86400
+                lifetime_seconds = expires - now_ts
+                lifetime_days = lifetime_seconds / 86400
 
-            if lifetime_days >= 0:
-                lifetime_values.append(lifetime_days)
+                if lifetime_days >= 0:
+                    lifetime_values.append(lifetime_days)
 
+            # check domain & name against the loaded filter lists
+            # if no tracker_list was provided, omit the field entirely
+            # so existing consumers don't break
+            tracker_detection = None
+            if self.tracker_list is not None:
+                tracker_detection = self.tracker_list.is_tracker(cookie)
+                if tracker_detection:
+                    num_trackers += 1
+
+            # build per-cookie record
             single_cookie_metadata = {
-                "name": cookie.get("name"),
-                "domain": cookie.get("domain"),
+                "name": cookie_name,
+                "domain": cookie_domain,
                 "session": is_session,
                 "cookie_type": cookie_type,
                 "secure": cookie.get("secure"),
@@ -166,39 +191,48 @@ class ChromiumClient(Client):
                 "expires_unix": expires,
                 "expiration_datetime": expiration_datetime,
                 "lifetime_seconds": lifetime_seconds,
-                "lifetime_days": lifetime_days
+                "lifetime_days": lifetime_days,
             }
+
+            if tracker_detection is not None:
+                single_cookie_metadata["is_tracker"] = tracker_detection.to_dict()
+            else:
+                single_cookie_metadata["is_tracker"] = False
 
             cookies_metadata.append(single_cookie_metadata)
 
         avg_lifetime_days = (
-            sum(lifetime_values) / len(lifetime_values)
-            if lifetime_values else None
+            sum(lifetime_values) / len(lifetime_values) if lifetime_values else None
         )
 
-        max_lifetime_days = (
-            max(lifetime_values)
-            if lifetime_values else None
-        )
+        max_lifetime_days = max(lifetime_values) if lifetime_values else None
 
-        min_lifetime_days = (
-            min(lifetime_values)
-            if lifetime_values else None
-        )
+        min_lifetime_days = min(lifetime_values) if lifetime_values else None
+
+        site_metadata = {
+            "target_url": params.get("target_url"),
+            "collection_timestamp": now.isoformat(),
+            "wait_time_seconds": params.get("wait_time_seconds"),
+            "total_cookies": len(cookies_metadata),
+            "num_session": num_session,
+            "num_persistent": num_persistent,
+            "avg_lifetime_days": avg_lifetime_days,
+            "min_lifetime_days": min_lifetime_days,
+            "max_lifetime_days": max_lifetime_days,
+        }
+
+        # include tracker summary stats only when a TrackerList was provided.
+        if self.tracker_list is not None:
+            site_metadata["num_trackers"] = num_trackers
+            site_metadata["pct_trackers"] = (
+                round(num_trackers / len(cookies_metadata) * 100, 1)
+                if cookies_metadata
+                else 0.0
+            )
 
         output_data = {
-            "site_metadata": {
-                "target_url": params.get("target_url"),
-                "collection_timestamp": now.isoformat(),
-                "wait_time_seconds": params.get("wait_time_seconds"),
-                "total_cookies": len(cookies_metadata),
-                "num_session": num_session,
-                "num_persistent": num_persistent,
-                "avg_lifetime_days": avg_lifetime_days,
-                "min_lifetime_days": min_lifetime_days,
-                "max_lifetime_days": max_lifetime_days
-            },
-            "cookies": cookies_metadata
+            "site_metadata": site_metadata,
+            "cookies": cookies_metadata,
         }
 
         if output_dir:
@@ -207,7 +241,7 @@ class ChromiumClient(Client):
         else:
             output_path = output_name
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output_data, f, indent=4)
 
         print("Scrape complete!")
