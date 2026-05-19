@@ -13,7 +13,6 @@ import re
 import sys
 from adjustText import adjust_text
 
-
 sys.path.insert(0, os.path.dirname(__file__))
 from utils import apply_theme, load_cookie_data, ACCENT, ACCENT2, DARK, MID, LIGHT
 
@@ -34,27 +33,21 @@ def plot_scatter(data_dir: str, out_dir: str):
     # Aggregate cookie counts per TLD
     cookie_stats = (
         cookies_df.groupby(["tld", "domain"])
-        .agg(
-            site_cookie_count=("name", "count")
-        )
+        .agg(site_cookie_count=("name", "count"))
         .reset_index()
         .groupby("tld")
-        .agg(
-            avg_total_cookies=("site_cookie_count", "mean")
-        )
+        .agg(avg_total_cookies=("site_cookie_count", "mean"))
         .reset_index()
     )
 
     # Persistent cookie lifetime stats
-    persistent = cookies_df[
-        cookies_df["cookie_type"] == "persistent"
-    ].copy()
+    persistent = cookies_df[cookies_df["cookie_type"] == "persistent"].copy()
 
     lifetime_stats = (
         persistent.groupby("tld")
         .agg(
             median_lifetime_days=("lifetime_days", "median"),
-            num_persistent=("name", "count")
+            num_persistent=("name", "count"),
         )
         .reset_index()
     )
@@ -74,49 +67,17 @@ def plot_scatter(data_dir: str, out_dir: str):
     ymax = y.max() * 1.18
 
     # Quadrant shading
-    ax.axvspan(
-        x_mid,
-        xmax,
-        ymin=y_mid / ymax,
-        ymax=1,
-        color=ACCENT,
-        alpha=0.2
-    )
+    ax.axvspan(x_mid, xmax, ymin=y_mid / ymax, ymax=1, color=ACCENT, alpha=0.2)
 
-    ax.axvspan(
-        x_mid,
-        xmax,
-        ymin=0,
-        ymax=y_mid / ymax,
-        color=ACCENT,
-        alpha=0.08
-    )
+    ax.axvspan(x_mid, xmax, ymin=0, ymax=y_mid / ymax, color=ACCENT, alpha=0.08)
 
-    ax.axvline(
-        x_mid,
-        color=LIGHT,
-        linewidth=1.2,
-        linestyle="--"
-    )
+    ax.axvline(x_mid, color=LIGHT, linewidth=1.2, linestyle="--")
 
-    ax.axhline(
-        y_mid,
-        color=LIGHT,
-        linewidth=1.2,
-        linestyle="--"
-    )
+    ax.axhline(y_mid, color=LIGHT, linewidth=1.2, linestyle="--")
 
     sizes = 10
 
-    ax.scatter(
-        x,
-        y,
-        s=sizes,
-        color=MID,
-        alpha=0.65,
-        edgecolors=DARK,
-        linewidths=0.5
-    )
+    ax.scatter(x, y, s=sizes, color=MID, alpha=0.65, edgecolors=DARK, linewidths=0.5)
 
     texts = []
 
@@ -126,20 +87,12 @@ def plot_scatter(data_dir: str, out_dir: str):
             row["avg_total_cookies"],
             row["tld"],
             fontsize=10,
-            color=DARK
+            color=DARK,
         )
         texts.append(text)
 
     adjust_text(
-        texts,
-        ax=ax,
-        arrowprops=dict(
-            arrowstyle="-",
-            color=DARK,
-            lw=1.0,
-            alpha=0.7
-        )
-
+        texts, ax=ax, arrowprops=dict(arrowstyle="-", color=DARK, lw=1.0, alpha=0.7)
     )
 
     # Quadrant labels
@@ -151,7 +104,7 @@ def plot_scatter(data_dir: str, out_dir: str):
         color=ACCENT,
         fontweight="bold",
         ha="right",
-        va="top"
+        va="top",
     )
 
     ax.text(
@@ -161,7 +114,7 @@ def plot_scatter(data_dir: str, out_dir: str):
         fontweight="bold",
         fontsize=7.5,
         color=MID,
-        ha="right"
+        ha="right",
     )
 
     ax.text(
@@ -171,7 +124,7 @@ def plot_scatter(data_dir: str, out_dir: str):
         fontweight="bold",
         fontsize=7.5,
         color=MID,
-        va="top"
+        va="top",
     )
 
     ax.text(
@@ -180,26 +133,18 @@ def plot_scatter(data_dir: str, out_dir: str):
         "LOW COOKIE COUNT\nSHORT LIFETIME",
         fontweight="bold",
         fontsize=7.5,
-        color=MID
+        color=MID,
     )
 
     ax.set_xlim(left=-2, right=xmax)
     ax.set_ylim(bottom=0, top=ymax)
 
-    ax.set_xlabel(
-        "Median Cookie Lifetime (Days)",
-        fontsize=11
-    )
+    ax.set_xlabel("Median Cookie Lifetime (Days)", fontsize=11)
 
-    ax.set_ylabel(
-        "Average Cookies per Website",
-        fontsize=11
-    )
+    ax.set_ylabel("Average Cookies per Website", fontsize=11)
 
     ax.set_title(
-        "Cookie Lifetime and Count Across 27 Top-Level Domains",
-        fontsize=15,
-        pad=14
+        "Cookie Lifetime and Count Across 27 Top-Level Domains", fontsize=15, pad=14
     )
 
     ax.tick_params(axis="both", labelsize=10)
@@ -207,18 +152,12 @@ def plot_scatter(data_dir: str, out_dir: str):
     ax.grid(alpha=0.3)
     ax.spines[["top", "right"]].set_visible(False)
 
-
-
     plt.tight_layout()
 
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "plot_scatter.png")
 
-    plt.savefig(
-        out_path,
-        dpi=300,
-        bbox_inches="tight"
-    )
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
 
     print(f"Saved → {out_path}")
     plt.close()

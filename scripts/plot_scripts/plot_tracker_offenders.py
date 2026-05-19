@@ -33,12 +33,18 @@ def load_tracker_cookies(data_dir: str) -> pd.DataFrame:
             if "is_tracker" not in cookie:
                 continue
             tracker_val = cookie["is_tracker"]
-            is_tracker = bool(tracker_val) if isinstance(tracker_val, bool) else bool(tracker_val.get("lists"))
-            rows.append({
-                "domain":     domain,
-                "name":       cookie.get("name"),
-                "is_tracker": is_tracker,
-            })
+            is_tracker = (
+                bool(tracker_val)
+                if isinstance(tracker_val, bool)
+                else bool(tracker_val.get("lists"))
+            )
+            rows.append(
+                {
+                    "domain": domain,
+                    "name": cookie.get("name"),
+                    "is_tracker": is_tracker,
+                }
+            )
     if not rows:
         raise ValueError(
             "No cookies with is_tracker found. "
@@ -60,29 +66,26 @@ def plot_tracker_offenders(data_dir: str, out_dir: str, top_n: int = 25) -> None
     stats = stats[stats["total"] >= 2]
     stats["pct_tracker"] = stats["trackers"] / stats["total"] * 100
 
-    top = (
-        stats.sort_values(["pct_tracker", "trackers"], ascending=[False, False])
-        .head(top_n)
+    top = stats.sort_values(["pct_tracker", "trackers"], ascending=[False, False]).head(
+        top_n
     )
 
     # Gradient colours (same approach as plot_longterm_offenders)
     norm = plt.Normalize(top["pct_tracker"].min(), top["pct_tracker"].max())
     colors = [
         plt.matplotlib.colors.to_hex(
-            plt.matplotlib.colors.hsv_to_rgb([
-                0.06,
-                0.4 + 0.55 * norm(v),
-                0.9 - 0.35 * norm(v),
-            ])
+            plt.matplotlib.colors.hsv_to_rgb(
+                [
+                    0.06,
+                    0.4 + 0.55 * norm(v),
+                    0.9 - 0.35 * norm(v),
+                ]
+            )
         )
         for v in top["pct_tracker"]
     ]
 
-    labels = (
-        top["domain"]
-        .str.replace(r"https?://", "", regex=True)
-        .str.rstrip("/")
-    )
+    labels = top["domain"].str.replace(r"https?://", "", regex=True).str.rstrip("/")
 
     fig, ax = plt.subplots(figsize=(11, max(7, top_n * 0.42)))
 
@@ -103,7 +106,9 @@ def plot_tracker_offenders(data_dir: str, out_dir: str, top_n: int = 25) -> None
             bar.get_width() + 0.8,
             bar.get_y() + bar.get_height() / 2,
             f"{pct:.0f}%  ({count:.0f} trackers)",
-            va="center", fontsize=12, color=DARK,
+            va="center",
+            fontsize=12,
+            color=DARK,
         )
 
     ax.set_xlim(0, 115)
@@ -118,14 +123,16 @@ def plot_tracker_offenders(data_dir: str, out_dir: str, top_n: int = 25) -> None
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "plot_tracker_offenders.png")
     plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
+    out_path = os.path.join(out_dir, "plot_tracker_offenders.pdf")
+    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
     print(f"Saved → {out_path}")
     plt.close()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data",  default="./cookies_data")
-    parser.add_argument("--out",   default="./plots/trackers")
+    parser.add_argument("--data", default="./cookies_data")
+    parser.add_argument("--out", default="./plots/trackers")
     parser.add_argument("--top_n", default=25, type=int)
     args = parser.parse_args()
     plot_tracker_offenders(args.data, args.out, args.top_n)
