@@ -22,7 +22,7 @@ from utils import (
     lifetime_bucket,
     BG,
     DARK,
-    MID
+    MID,
 )
 
 
@@ -31,14 +31,10 @@ def plot_buckets(data_dir: str, out_dir: str):
     _, cookies_df = load_cookie_data(data_dir)
 
     cookies_df["bucket"] = cookies_df.apply(
-        lambda r: lifetime_bucket(r["lifetime_days"], r["session"]),
-        axis=1
+        lambda r: lifetime_bucket(r["lifetime_days"], r["session"]), axis=1
     )
 
-    counts = cookies_df["bucket"].value_counts().reindex(
-        BUCKETS,
-        fill_value=0
-    )
+    counts = cookies_df["bucket"].value_counts().reindex(BUCKETS, fill_value=0)
 
     total = counts.sum()
     pcts = counts / total * 100
@@ -46,12 +42,7 @@ def plot_buckets(data_dir: str, out_dir: str):
     fig, ax = plt.subplots(figsize=(9, 5))
 
     bars = ax.barh(
-        BUCKETS,
-        pcts,
-        color=BUCKET_COLORS,
-        edgecolor=BG,
-        linewidth=0.8,
-        height=0.65
+        BUCKETS, pcts, color=BUCKET_COLORS, edgecolor=BG, linewidth=0.8, height=0.65
     )
 
     for bar, pct, count in zip(bars, pcts, counts):
@@ -61,7 +52,7 @@ def plot_buckets(data_dir: str, out_dir: str):
             f"{pct:.1f}% ({count:,})",
             va="center",
             fontsize=9,
-            color=DARK
+            color=DARK,
         )
 
     ax.set_xlim(0, pcts.max() * 1.28)
@@ -79,7 +70,7 @@ def plot_buckets(data_dir: str, out_dir: str):
         transform=ax.transAxes,
         ha="right",
         fontsize=8.5,
-        color=MID
+        color=MID,
     )
 
     plt.tight_layout()
@@ -87,12 +78,7 @@ def plot_buckets(data_dir: str, out_dir: str):
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "plot_lifetime_buckets.png")
 
-    plt.savefig(
-        out_path,
-        dpi=300,
-        bbox_inches="tight",
-        facecolor=BG
-    )
+    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
 
     print(f"Saved → {out_path}")
     plt.close()

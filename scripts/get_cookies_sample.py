@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from client import trackers
 from client.client_utils import ClientUtils
 
+
 def signal_handler(signum, frame):
     print("\nReceived Ctrl-C, shutting down...")
     sys.exit(0)
@@ -16,7 +17,10 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 tracker_list = trackers.TrackerList()
-tracker_list.load(cache_dir=".tracker_cache", trackers={trackers.Detections.EasyPrivacy, trackers.Detections.OpenCookieDB})
+tracker_list.load(
+    cache_dir=".tracker_cache",
+    trackers={trackers.Detections.EasyPrivacy, trackers.Detections.OpenCookieDB},
+)
 
 try:
     asyncio.run(

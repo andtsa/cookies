@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass, asdict
 from enum import Enum
 import re
@@ -13,29 +12,33 @@ from .util import _load_from_cache, _save_to_cache
 # ("https://easylist.to/easylist/easyprivacy.txt", ListType.ABP),
 # ("https://raw.githubusercontent.com/jkwakman/Open-Cookie-Database/refs/heads/master/open-cookie-database.csv", ListType.OCDB)
 
+
 class Detections(Enum):
     EasyPrivacy = "https://easylist.to/easylist/easyprivacy.txt"
     OpenCookieDB = "https://raw.githubusercontent.com/jkwakman/Open-Cookie-Database/refs/heads/master/open-cookie-database.csv"
+
 
 @dataclass
 class TrackerDetection:
     """
     Metadata about a detected tracker.
-    
+
     Attributes:
         lists: List of detection sources (list names/URLs)
         ocdb_match: Whether detected by Open Cookie Database
         easyprivacy_match: Whether detected by EasyPrivacy
         matched_domain: The domain from the tracker list that matched (if applicable)
     """
+
     lists: List[str]  # e.g., ["EasyPrivacy", "OpenCookieDB"]
     ocdb_match: bool = False
     easyprivacy_match: bool = False
     matched_domain: Optional[str] = None
-    
+
     def to_dict(self):
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
+
 
 class TrackerList:
     def __init__(self) -> None:
@@ -67,7 +70,7 @@ class TrackerList:
     def is_tracker(self, cookie: dict) -> Optional[TrackerDetection]:
         """
         Check if the cookie is identified as a tracker and return detection metadata.
-        
+
         Returns:
             TrackerDetection object with metadata if cookie is identified as a tracker,
             None otherwise.
@@ -123,10 +126,12 @@ class TrackerList:
                 # Strip || and ^ to get the bare domain
                 domain = rule.pattern.lstrip("|").rstrip("^").lstrip("/")
                 # Keep only clean hostnames (no wildcards, no paths)
-                if re.match(r'^[\w.-]+$', domain):
+                if re.match(r"^[\w.-]+$", domain):
                     self.tracker_domains.add(domain)
-        print(f"[TrackerList] loaded {len(self.tracker_domains)} EasyPrivacy tracker domains")
-        
+        print(
+            f"[TrackerList] loaded {len(self.tracker_domains)} EasyPrivacy tracker domains"
+        )
+
     def _load_ocdb(self, url: str, cache_dir: Optional[str]):
         text = self._fetch(url, cache_dir)
         self._ocdb = parse_ocdb_list(text)
@@ -140,7 +145,7 @@ class TrackerList:
     def _is_ep_tracker(self, cookie: dict) -> tuple[Optional[str], bool]:
         """
         Check if cookie domain matches EasyPrivacy tracker domains.
-        
+
         Returns:
             Tuple of (matched_domain, is_match) where matched_domain is the
             domain from tracker_domains that matched, or None if no match.
@@ -156,5 +161,3 @@ class TrackerList:
             if candidate in self.tracker_domains:
                 return candidate, True
         return None, False
-        
-
