@@ -210,7 +210,6 @@ class ChromiumClient(Client):
         min_lifetime_days = min(lifetime_values) if lifetime_values else None
 
         site_metadata = {
-            "target_url": params.get("target_url"),
             "collection_timestamp": now.isoformat(),
             "wait_time_seconds": params.get("wait_time_seconds"),
             "total_cookies": len(cookies_metadata),
@@ -231,6 +230,7 @@ class ChromiumClient(Client):
             )
 
         output_data = {
+            "target_url": params.get("target_url"),
             "site_metadata": site_metadata,
             "cookies": cookies_metadata,
         }

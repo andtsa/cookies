@@ -2,6 +2,7 @@ import csv
 
 TRACKING_CATEGORIES = {"Advertising", "Analytics", "Social Media"}
 
+
 def parse_ocdb_list(text: str) -> dict:
     db = {}
     reader = csv.DictReader(text.splitlines())
@@ -14,6 +15,7 @@ def parse_ocdb_list(text: str) -> dict:
             "retention": row["Retention period"].strip(),
         }
     return db
+
 
 def is_ocdb_tracker(cookie: dict, db: dict) -> bool:
     cookie_name = cookie["name"]

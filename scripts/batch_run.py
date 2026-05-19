@@ -57,7 +57,10 @@ async def process_sites(
 
 async def main():
     tracker_list = TrackerList()
-    tracker_list.load(cache_dir=".tracker_cache", trackers={Detections.OpenCookieDB, Detections.EasyPrivacy})
+    tracker_list.load(
+        cache_dir=".tracker_cache",
+        trackers={Detections.OpenCookieDB, Detections.EasyPrivacy},
+    )
 
     await process_sites("list_websites_1M.csv", limit=500, tracker_list=tracker_list)
 
