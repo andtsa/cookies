@@ -5,6 +5,7 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from .client import Client
 from .cookies_utils import CookiesUtils
+from .tracker_util import TrackerUtil
 from .trackers import TrackerList
 
 if TYPE_CHECKING:
@@ -30,6 +31,7 @@ class SimplePlaywrightClient(Client):
         self.context: BrowserContext | None = None
         self.page: Page | None = None
         self.tracker_list = tracker_list
+        self.tracker_util = TrackerUtil()
 
     async def visit_page(
         self,
@@ -58,6 +60,8 @@ class SimplePlaywrightClient(Client):
         self.context = await self.browser.new_context()
         self.page = await self.context.new_page()
         await self.context.clear_cookies()
+        self.page.on("request", self.tracker_util._on_request_sent)
+        self.page.on("response", self.tracker_util._on_response_extra)
         print(f"{self.browser_type.value.capitalize()} setup complete.")
 
     async def _navigate_to_page(

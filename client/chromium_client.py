@@ -5,6 +5,7 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from .client import Client
 from .cookies_utils import CookiesUtils
+from .tracker_util import TrackerUtil
 from .trackers import TrackerList
 
 
@@ -28,6 +29,7 @@ class ChromiumClient(Client):
         self.page: Page | None = None
         self.client = None
         self.tracker_list = tracker_list
+        self.tracker_util = TrackerUtil()
         self.channel = channel
         self.executable_path = executable_path
 
@@ -80,6 +82,9 @@ class ChromiumClient(Client):
         await self.client.send("Page.enable")
         await self.client.send("Network.enable")
         await self.client.send("Network.clearBrowserCookies")
+
+        self.client.on("Network.requestWillBeSent", self.tracker_util._on_request_sent)
+        self.client.on("Network.responseReceivedExtraInfo", self.tracker_util._on_response_extra)
 
         print("Browser setup complete.")
 
