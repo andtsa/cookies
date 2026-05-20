@@ -499,13 +499,13 @@ class FilterList:
 
     def __init__(
         self,
-        metadata: dict[str, str] = {},
-        rules: list[AnyRule] = [],
-        parse_errors: list[tuple[int, str, str]] = [],
+        metadata: dict[str, str] | None = None,
+        rules: list[AnyRule] | None = None,
+        parse_errors: list[tuple[int, str, str]] | None = None,
     ) -> None:
-        self.metadata = metadata
-        self.rules = rules
-        self.parse_errors = parse_errors
+        self.metadata = metadata if metadata is not None else {}
+        self.rules = rules if rules is not None else []
+        self.parse_errors = parse_errors if parse_errors is not None else []
 
     # --- Filtered views (properties for convenience) ---
 

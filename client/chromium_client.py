@@ -1,11 +1,16 @@
 import asyncio
 from typing import Any, Callable, Dict, Optional
 
+import tldextract
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+
+from client.trackers.matcher import EasyPrivacyMatcher
+from client.trackers.reads import CookieReadInterceptor
 
 from .client import Client
 from .cookies_utils import CookiesUtils
 from .trackers import TrackerList
+from .util import _parse_set_cookie_name
 
 
 class ChromiumClient(Client):
@@ -16,15 +21,26 @@ class ChromiumClient(Client):
     like cookie management and network monitoring.
     """
 
-    def __init__(self, tracker_list: Optional[TrackerList] = None):
+    def __init__(
+        self,
+        tracker_list: Optional[TrackerList] = None,
+        matcher=None,
+        intercept_cookie_reads: bool = False,
+    ):
         self.playwright = None
         self.browser: Browser | None = None
         self.context: BrowserContext | None = None
         self.page: Page | None = None
         self.client = None
-        # tracker list for annotating cookies with `is_tracker`
-        # if None, is_tracker will not be included in the output JSON
         self.tracker_list = tracker_list
+
+        self.easyprivacy_matcher: EasyPrivacyMatcher | None = matcher
+
+        self._intercept_cookie_reads: bool = intercept_cookie_reads
+        self._cookie_read_interceptor: CookieReadInterceptor | None = None
+        self._request_context: dict[str, dict] = {}
+        self._cookie_set_context: dict[tuple, dict] = {}
+        self._request_log: list[dict] = []
 
     async def visit_page(
         self,
@@ -42,16 +58,20 @@ class ChromiumClient(Client):
         Executes: setup → navigate → behavior → on_close sequence
         """
         try:
-            await self._setup(headless=headless)
+            await self._setup(url=url, headless=headless)
             await self._navigate_to_page(url, timeout_ms=timeout_ms)
             await behavior(self, params)
             await on_close(self, output_args)
         except Exception as e:
-            print(f"Error during page visit: {e}")
+            print(f"Error in chromium client during visit_page:\n\t{e}")
             await self._on_close_empty()
             raise
 
-    async def _setup(self, headless: Optional[bool] = False) -> None:
+    async def _setup(
+        self,
+        url: str,
+        headless: Optional[bool] = False,
+    ) -> None:
         """
         Initialize Chromium browser with CDP session.
 
@@ -71,6 +91,14 @@ class ChromiumClient(Client):
         await self.client.send("Page.enable")
         await self.client.send("Network.enable")
         await self.client.send("Network.clearBrowserCookies")
+
+        self.client.on("Network.requestWillBeSent", self._on_request_sent)
+        self.client.on("Network.responseReceivedExtraInfo", self._on_response_extra)
+
+        if self._intercept_cookie_reads:
+            domain = tldextract.extract(url).registered_domain or url
+            self._cookie_read_interceptor = CookieReadInterceptor(visited_domain=domain)
+            await self._cookie_read_interceptor.attach(self.page)
 
         print("Browser setup complete.")
 
@@ -98,6 +126,70 @@ class ChromiumClient(Client):
         seconds = milliseconds / 1000.0
         print(f"Waiting for {seconds} seconds to let trackers load...")
         await asyncio.sleep(seconds)
+
+    async def _on_request_sent(self, event: dict) -> None:
+        rid = event["requestId"]
+        request_url = event["request"]["url"]
+        document_url = event.get("documentURL", "")
+        cdp_type = event.get("type", "")
+
+        self._request_context[rid] = {
+            "url": request_url,
+            "document_url": document_url,
+            "type": cdp_type,
+            "initiator": (event.get("initiator") or {}).get("url", ""),
+        }
+
+        easyprivacy_match = {"matched": False}
+        if self.easyprivacy_matcher and request_url and document_url:
+            result = self.easyprivacy_matcher.match(request_url, document_url, cdp_type)
+            easyprivacy_match = result.to_dict()
+
+        self._request_log.append(
+            {
+                "request_id": rid,
+                "url": request_url,
+                "type": cdp_type,
+                # "is_third_party":   self._is_third_party(request_url, document_url),
+                "easyprivacy": easyprivacy_match,
+            }
+        )
+
+    async def _on_response_extra(self, event: dict) -> None:
+        rid = event["requestId"]
+        headers = event.get("headers", {})
+
+        set_cookie = next(
+            (v for k, v in headers.items() if k.lower() == "set-cookie"), None
+        )
+        if not set_cookie:
+            return
+
+        ctx = self._request_context.get(rid)
+        if not ctx or not ctx["url"] or not ctx["document_url"]:
+            return
+
+        request_domain = tldextract.extract(ctx["url"]).registered_domain
+        page_domain = tldextract.extract(ctx["document_url"]).registered_domain
+
+        if not request_domain or not page_domain:
+            return
+
+        # Parse one or more cookies from the header (CDP joins them with \n)
+        for raw_cookie in set_cookie.split("\n"):
+            name = _parse_set_cookie_name(raw_cookie)
+            if not name:
+                continue
+
+            # Key: (name, request_domain) — same cookie set by different domains
+            # should produce separate entries
+            key = (name, request_domain)
+            self._cookie_set_context[key] = {
+                "set_by_request_url": ctx["url"],
+                "set_by_request_type": ctx["type"],  # "XHR", "Image", "Ping", ...
+                "set_by_initiator": ctx["initiator"],  # script URL that triggered this
+                "is_third_party_set": request_domain != page_domain,
+            }
 
     async def _on_close_get_cookies_snapshot(
         self, output_dir: str, output_name: str, params: Dict[str, Any]
@@ -130,7 +222,14 @@ class ChromiumClient(Client):
         print(f"Found {len(cookies)} cookies.")
 
         CookiesUtils.process_and_save(
-            cookies, output_dir, output_name, params, self.tracker_list
+            cookies,
+            self._cookie_set_context,
+            self._request_log,
+            output_dir,
+            output_name,
+            params,
+            self.tracker_list,
+            self._cookie_read_interceptor,
         )
 
         print("Scrape complete!")

@@ -13,3 +13,4 @@ list_websites_*.csv
 .tracker_cache/
 plots/
 .tracker_cache.zip
+failed_sites.txt

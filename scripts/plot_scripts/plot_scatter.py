@@ -14,7 +14,16 @@ import sys
 from adjustText import adjust_text
 
 sys.path.insert(0, os.path.dirname(__file__))
-from utils import apply_theme, load_cookie_data, ACCENT, ACCENT2, DARK, MID, LIGHT
+from utils import (
+    apply_theme,
+    load_cookie_data,
+    save_figure,
+    ACCENT,
+    ACCENT2,
+    DARK,
+    MID,
+    LIGHT,
+)
 
 
 def extract_tld(domain: str) -> str:
@@ -153,14 +162,7 @@ def plot_scatter(data_dir: str, out_dir: str):
     ax.spines[["top", "right"]].set_visible(False)
 
     plt.tight_layout()
-
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "plot_scatter.png")
-
-    plt.savefig(out_path, dpi=300, bbox_inches="tight")
-
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "plot_scatter.png")
 
 
 if __name__ == "__main__":

@@ -36,7 +36,11 @@ class Client(ABC):
         pass
 
     @abstractmethod
-    async def _setup(self, headless: Optional[bool] = False) -> None:
+    async def _setup(
+        self,
+        url: str,
+        headless: Optional[bool] = False,
+    ) -> None:
         """
         Initialize the browser, context, and any required sessions.
 

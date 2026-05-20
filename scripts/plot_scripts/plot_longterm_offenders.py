@@ -13,7 +13,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from utils import apply_theme, load_cookie_data, BG, DARK, MID, LIGHT
+from utils import apply_theme, load_cookie_data, save_figure, BG, DARK, MID, LIGHT
 
 LONGTERM_THRESHOLD_DAYS = 365
 
@@ -99,13 +99,7 @@ def plot_offenders(data_dir: str, out_dir: str, top_n: int = 25):
 
     plt.tight_layout()
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "plot_longterm_offenders.png")
-
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "plot_longterm_offenders.png")
 
 
 if __name__ == "__main__":

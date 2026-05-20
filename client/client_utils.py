@@ -1,9 +1,12 @@
 import asyncio
 import csv
+import os
 import re
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
+
+from client.trackers.matcher import EasyPrivacyMatcher
 
 from .chromium_client import ChromiumClient
 from .client import Client
@@ -17,46 +20,27 @@ class Browser(Enum):
 
 
 class ClientUtils:
-    """
-    Factory class for instantiating browser automation clients.
+    """Factory and batch-runner for browser automation clients."""
 
-    Provides a centralized way to create and configure different
-    browser clients based on the target browser type.
-    """
-
-    def __init__(self, browser_paths: Dict[str, str]):
-        """
-        Initialize ClientUtils with browser paths.
-
-        Args:
-            browser_paths: Dictionary mapping browser names to executable paths
-                          (e.g., {"brave": "C:/Program Files/Brave/brave.exe"})
-                          Used for custom browser binaries in future implementations.
-        """
-        self.browser_paths = browser_paths
-
+    @staticmethod
     def get_client(
-        self,
         browser_type: Browser,
         tracker_list: Optional[TrackerList] = None,
+        matcher: EasyPrivacyMatcher | None = None,
+        intercept_cookie_reads: bool = True,
     ) -> Client:
         """
-        Get a client instance for the specified browser type.
+        Return a client instance for the given browser type.
 
-        Args:
-            browser_type: The type of browser to instantiate
-            tracker_list: Optional TrackerList for cookie annotation
-
-        Returns:
-            Client instance for the specified browser
-
-        Raises:
-            ValueError: If the requested browser type is not supported
+        Raises ValueError if the browser type is not supported.
         """
         if browser_type == Browser.CHROMIUM:
-            return ChromiumClient(tracker_list=tracker_list)
-        else:
-            raise ValueError(f"Unsupported browser type: {browser_type.value}")
+            return ChromiumClient(
+                tracker_list=tracker_list,
+                matcher=matcher,
+                intercept_cookie_reads=intercept_cookie_reads,
+            )
+        raise ValueError(f"Unsupported browser type: {browser_type.value}")
 
     @staticmethod
     async def run_for_page(
@@ -69,9 +53,14 @@ class ClientUtils:
         timeout_ms: Optional[int] = 10000,
         headless: Optional[bool] = False,
         tracker_list: Optional[TrackerList] = None,
+        matcher: EasyPrivacyMatcher | None = None,
+        intercept_cookie_reads: bool = True,
     ) -> None:
-        client = ClientUtils(browser_paths={}).get_client(
-            browser, tracker_list=tracker_list
+        client = ClientUtils.get_client(
+            browser,
+            tracker_list=tracker_list,
+            matcher=matcher,
+            intercept_cookie_reads=intercept_cookie_reads,
         )
 
         async def behavior_callback(client_instance, behavior_params):
@@ -115,6 +104,11 @@ class ClientUtils:
         wait_time_ms: int = 5000,
         concurrency: int = 1,
         tracker_list: Optional[TrackerList] = None,
+        matcher: EasyPrivacyMatcher | None = None,
+        overwrite: bool = False,
+        failed_sites_path: Optional[str] = None,
+        sleep_between_ms: int = 0,
+        intercept_cookie_reads: bool = True,
     ) -> None:
         urls = websites[:limit] if limit is not None else websites
         semaphore = asyncio.Semaphore(concurrency)
@@ -123,18 +117,35 @@ class ClientUtils:
             async with semaphore:
                 netloc = urlparse(url).netloc or url
                 safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", netloc) + ".json"
-                print(f"Processing {url} -> {output_dir}/{safe_name}")
-                await ClientUtils.run_for_page(
-                    url=url,
-                    wait_time_ms=wait_time_ms,
-                    output_dir=output_dir,
-                    output_name=safe_name,
-                    browser=browser,
-                    params={"target_url": url},
-                    timeout_ms=timeout_ms,
-                    headless=headless,
-                    tracker_list=tracker_list,
-                )
+                output_path = f"{output_dir}/{safe_name}"
+
+                if not overwrite and os.path.exists(output_path):
+                    print(f"Skipping {url}, already collected.")
+                    return
+
+                print(f"Processing {url} -> {output_path}")
+                try:
+                    await ClientUtils.run_for_page(
+                        url=url,
+                        wait_time_ms=wait_time_ms,
+                        output_dir=output_dir,
+                        output_name=safe_name,
+                        browser=browser,
+                        params={"target_url": url},
+                        timeout_ms=timeout_ms,
+                        headless=headless,
+                        tracker_list=tracker_list,
+                        matcher=matcher,
+                        intercept_cookie_reads=intercept_cookie_reads,
+                    )
+                except Exception as e:
+                    print(f"Failed for {url}: {e}")
+                    if failed_sites_path:
+                        with open(failed_sites_path, "a", encoding="utf-8") as f:
+                            f.write(f"{url}\n")
+
+                if sleep_between_ms > 0:
+                    await asyncio.sleep(sleep_between_ms / 1000)
 
         await asyncio.gather(*[process_one(url) for url in urls])
 
@@ -149,6 +160,11 @@ class ClientUtils:
         wait_time_ms: int = 5000,
         concurrency: int = 1,
         tracker_list: Optional[TrackerList] = None,
+        matcher: EasyPrivacyMatcher | None = None,
+        overwrite: bool = False,
+        failed_sites_path: Optional[str] = None,
+        sleep_between_ms: int = 0,
+        intercept_cookie_reads: bool = True,
     ) -> None:
         _URL_COLUMNS = ("url", "URL", "website", "Website", "domain", "Domain")
         websites: List[str] = []
@@ -175,4 +191,9 @@ class ClientUtils:
             wait_time_ms=wait_time_ms,
             concurrency=concurrency,
             tracker_list=tracker_list,
+            matcher=matcher,
+            overwrite=overwrite,
+            failed_sites_path=failed_sites_path,
+            sleep_between_ms=sleep_between_ms,
+            intercept_cookie_reads=intercept_cookie_reads,
         )

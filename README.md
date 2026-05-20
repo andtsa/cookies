@@ -67,7 +67,7 @@ python get_all_cookies.py
 Example using Tranco list:
 
 ```bash
-python batch_run.py
+python scripts/get_cookies.py list_websites_1M.csv --headless --tracker-lists
 ```
 
 This processes websites from:

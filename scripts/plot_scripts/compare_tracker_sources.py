@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
-from utils import apply_theme, BG, DARK, ACCENT, ACCENT2, MID, LIGHT
+from utils import apply_theme, save_figure, BG, DARK, ACCENT, ACCENT2, MID, LIGHT
 
 
 def load_tracker_data(data_dir: str) -> pd.DataFrame:
@@ -276,11 +276,7 @@ def plot_venn_diagram(df: pd.DataFrame, out_dir: str) -> None:
         pad=20,
     )
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "venn_tracker_sources.png")
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "venn_tracker_sources.png")
 
 
 def plot_comparison_bars(df: pd.DataFrame, out_dir: str) -> None:
@@ -320,11 +316,7 @@ def plot_comparison_bars(df: pd.DataFrame, out_dir: str) -> None:
     ax.set_title("Tracker Detection Comparison by Source", fontweight="bold", pad=15)
     ax.grid(axis="y", alpha=0.3, linestyle="--")
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "comparison_bars.png")
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "comparison_bars.png")
 
 
 def plot_party_type_comparison(df: pd.DataFrame, out_dir: str) -> None:
@@ -390,11 +382,7 @@ def plot_party_type_comparison(df: pd.DataFrame, out_dir: str) -> None:
                     fontsize=10,
                 )
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "comparison_party_type.png")
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "comparison_party_type.png")
 
 
 def export_detailed_csv(df: pd.DataFrame, out_dir: str) -> None:

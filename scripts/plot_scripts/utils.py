@@ -1,5 +1,5 @@
 """
-Shared color palette for all plots.
+Shared color palette, data loaders, and save helper for all plot scripts.
 """
 
 import json
@@ -7,8 +7,7 @@ import os
 import glob
 import pandas as pd
 import matplotlib as mpl
-
-USE_TEX = True
+import matplotlib.pyplot as plt
 
 BG = "#fef2e6"
 COLORS = [
@@ -31,21 +30,6 @@ LIGHT = "#d8c9c0"
 
 
 def apply_theme():
-    # from .utils import USE_TEX
-    # if USE_TEX:
-    #     try:
-    #         mpl.rcParams.update(
-    #             {
-    #                 "text.usetex": True,
-    #                 "text.latex.preamble": r"\usepackage{libertine}\usepackage{amsmath}",
-    #             }
-    #         )
-    #         # quick test
-    #         import matplotlib.backends.backend_pdf  # noqa
-    #     except Exception:
-    #         USE_TEX = False
-    #         mpl.rcParams["text.usetex"] = False
-            
     mpl.rcParams.update(
         {
             "figure.facecolor": BG,
@@ -73,6 +57,17 @@ def apply_theme():
     )
 
 
+def _iter_cookie_files(data_dir: str):
+    """Yield (domain, data) for every JSON file in data_dir."""
+    paths = glob.glob(os.path.join(data_dir, "*.json"))
+    if not paths:
+        raise FileNotFoundError(f"No JSON files found in: {data_dir}")
+    for path in paths:
+        with open(path) as f:
+            data = json.load(f)
+        yield os.path.basename(path).replace(".json", ""), data
+
+
 def load_cookie_data(data_dir: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Returns:
@@ -82,16 +77,8 @@ def load_cookie_data(data_dir: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     site_rows = []
     cookie_rows = []
 
-    paths = glob.glob(os.path.join(data_dir, "*.json"))
-    if not paths:
-        raise FileNotFoundError(f"No JSON files found in: {data_dir}")
-
-    for path in paths:
-        with open(path) as f:
-            data = json.load(f)
-
+    for domain, data in _iter_cookie_files(data_dir):
         meta = data.get("site_metadata", {})
-        domain = os.path.basename(path).replace(".json", "")
 
         site_rows.append(
             {
@@ -122,6 +109,56 @@ def load_cookie_data(data_dir: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     sites_df = pd.DataFrame(site_rows)
     cookies_df = pd.DataFrame(cookie_rows)
     return sites_df, cookies_df
+
+
+def load_tracker_cookies(data_dir: str) -> pd.DataFrame:
+    """
+    Load cookies that have is_tracker annotations.
+    Skips files where is_tracker is absent (collected without --tracker-lists).
+    """
+    rows = []
+    skipped = 0
+
+    for domain, data in _iter_cookie_files(data_dir):
+        for cookie in data.get("cookies", []):
+            if "is_tracker" not in cookie:
+                skipped += 1
+                continue
+            tracker_val = cookie["is_tracker"]
+            is_tracker = (
+                bool(tracker_val)
+                if isinstance(tracker_val, bool)
+                else bool(tracker_val.get("lists"))
+            )
+            rows.append(
+                {
+                    "domain": domain,
+                    "name": cookie.get("name"),
+                    "is_tracker": is_tracker,
+                    "cookie_type": cookie.get("cookie_type", "session"),
+                    "session": cookie.get("session", True),
+                    "lifetime_days": cookie.get("lifetime_days") or 0,
+                }
+            )
+
+    if skipped:
+        print(f"[warn] Skipped {skipped:,} cookies with no is_tracker field.")
+    if not rows:
+        raise ValueError(
+            "No cookies with is_tracker found. "
+            "Re-collect with --tracker-lists to annotate trackers."
+        )
+    return pd.DataFrame(rows)
+
+
+def save_figure(out_dir: str, *filenames: str, facecolor: str = BG) -> None:
+    """Save the current figure to one or more files, then close it."""
+    os.makedirs(out_dir, exist_ok=True)
+    for filename in filenames:
+        out_path = os.path.join(out_dir, filename)
+        plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=facecolor)
+        print(f"Saved → {out_path}")
+    plt.close()
 
 
 BUCKETS = [

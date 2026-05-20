@@ -13,7 +13,17 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from utils import apply_theme, load_cookie_data, BG, ACCENT, ACCENT2, DARK, MID, LIGHT
+from utils import (
+    apply_theme,
+    load_cookie_data,
+    save_figure,
+    BG,
+    ACCENT,
+    ACCENT2,
+    DARK,
+    MID,
+    LIGHT,
+)
 
 
 def plot_survival(data_dir: str, out_dir: str):
@@ -92,12 +102,7 @@ def plot_survival(data_dir: str, out_dir: str):
         va="bottom",
     )
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "plot_cookie_survival.png")
-
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-
-    plt.close()
+    save_figure(out_dir, "plot_cookie_survival.png")
 
 
 if __name__ == "__main__":

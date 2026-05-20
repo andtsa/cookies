@@ -13,29 +13,33 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
-# Register the signal handler
-signal.signal(signal.SIGINT, signal_handler)
+def main():
+    signal.signal(signal.SIGINT, signal_handler)
 
-tracker_list = trackers.TrackerList()
-tracker_list.load(
-    cache_dir=".tracker_cache",
-    trackers={trackers.Detections.EasyPrivacy, trackers.Detections.OpenCookieDB},
-)
-
-try:
-    asyncio.run(
-        ClientUtils.process_batch(
-            websites=[
-                "https://www.nytimes.com",
-                "https://www.bbc.com",
-                "https://www.reddit.com",
-                "https://www.theguardian.com",
-                "https://www.cnn.com",
-                "https://www.washingtonpost.com",
-            ],
-            concurrency=4,
-            tracker_list=tracker_list,
-        )
+    tracker_list = trackers.TrackerList()
+    tracker_list.load(
+        cache_dir=".tracker_cache",
+        trackers={trackers.Detections.EasyPrivacy, trackers.Detections.OpenCookieDB},
     )
-except KeyboardInterrupt:
-    print("\nProcess interrupted by user.")
+
+    try:
+        asyncio.run(
+            ClientUtils.process_batch(
+                websites=[
+                    "https://www.nytimes.com",
+                    "https://www.bbc.com",
+                    "https://www.reddit.com",
+                    "https://www.theguardian.com",
+                    "https://www.cnn.com",
+                    "https://www.washingtonpost.com",
+                ],
+                concurrency=4,
+                tracker_list=tracker_list,
+            )
+        )
+    except KeyboardInterrupt:
+        print("\nProcess interrupted by user.")
+
+
+if __name__ == "__main__":
+    main()

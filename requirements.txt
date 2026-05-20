@@ -1,3 +1,5 @@
+matplotlib-venn
+adjusttext
 ## The following requirements were added by pip freeze:
 certifi==2026.4.22
 charset-normalizer==3.4.7

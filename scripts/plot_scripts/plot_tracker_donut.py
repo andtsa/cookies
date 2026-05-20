@@ -8,63 +8,22 @@ Usage:
 """
 
 import argparse
-import json
 import os
 import sys
-import glob
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
-from utils import apply_theme, BG, DARK, ACCENT, MID, LIGHT, BUCKET_COLORS
-
-
-def load_tracker_cookies(data_dir: str) -> pd.DataFrame:
-    """
-    Like load_cookie_data but also pulls in the is_tracker field.
-    Skips files where is_tracker is absent (collected without --tracker-lists).
-    """
-    rows = []
-    paths = glob.glob(os.path.join(data_dir, "*.json"))
-    if not paths:
-        raise FileNotFoundError(f"No JSON files found in: {data_dir}")
-
-    skipped = 0
-    for path in paths:
-        with open(path) as f:
-            data = json.load(f)
-        domain = os.path.basename(path).replace(".json", "")
-        for cookie in data.get("cookies", []):
-            if "is_tracker" not in cookie:
-                skipped += 1
-                continue
-            tracker_val = cookie["is_tracker"]
-            is_tracker = (
-                bool(tracker_val)
-                if isinstance(tracker_val, bool)
-                else bool(tracker_val.get("lists"))
-            )
-            rows.append(
-                {
-                    "domain": domain,
-                    "name": cookie.get("name"),
-                    "is_tracker": is_tracker,
-                    "cookie_type": cookie.get("cookie_type", "session"),
-                    "session": cookie.get("session", True),
-                    "lifetime_days": cookie.get("lifetime_days") or 0,
-                }
-            )
-
-    if skipped:
-        print(f"[warn] Skipped {skipped:,} cookies with no is_tracker field.")
-    if not rows:
-        raise ValueError(
-            "No cookies with is_tracker found. "
-            "Re-collect with --tracker-lists to annotate trackers."
-        )
-    return pd.DataFrame(rows)
+from utils import (
+    apply_theme,
+    load_tracker_cookies,
+    save_figure,
+    BG,
+    DARK,
+    ACCENT,
+    BUCKET_COLORS,
+)
 
 
 def plot_tracker_donut(data_dir: str, out_dir: str) -> None:
@@ -125,11 +84,7 @@ def plot_tracker_donut(data_dir: str, out_dir: str) -> None:
 
     ax.set_title("Tracker vs Non-Tracker Cookies", pad=15)
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "plot_tracker_donut.png")
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "plot_tracker_donut.png")
 
 
 if __name__ == "__main__":
