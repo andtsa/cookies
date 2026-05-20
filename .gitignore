@@ -14,3 +14,4 @@ list_websites_*.csv
 .tracker_cache/
 plots/
 .tracker_cache.zip
+.env

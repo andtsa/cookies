@@ -1,9 +1,14 @@
 import asyncio
 import csv
+import os
 import re
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from .chromium_client import ChromiumClient
 from .client import Client
@@ -13,27 +18,26 @@ from .trackers import TrackerList
 class Browser(Enum):
     """Enumeration of supported browser types."""
 
-    CHROMIUM = "chromium"
+    CHROMIUM   = "chromium"
+    CHROME     = "chrome"
+    EDGE       = "edge"
+    BRAVE      = "brave"
+    DUCKDUCKGO = "duckduckgo"
+
+
+_BROWSER_CHANNEL: Dict[Browser, str] = {
+    Browser.CHROME: "chrome",
+    Browser.EDGE:   "msedge",
+}
+
+_BROWSER_ENV_KEY: Dict[Browser, str] = {
+    Browser.BRAVE:      "BRAVE_PATH",
+    Browser.DUCKDUCKGO: "DUCKDUCKGO_PATH",
+}
 
 
 class ClientUtils:
-    """
-    Factory class for instantiating browser automation clients.
-
-    Provides a centralized way to create and configure different
-    browser clients based on the target browser type.
-    """
-
-    def __init__(self, browser_paths: Dict[str, str]):
-        """
-        Initialize ClientUtils with browser paths.
-
-        Args:
-            browser_paths: Dictionary mapping browser names to executable paths
-                          (e.g., {"brave": "C:/Program Files/Brave/brave.exe"})
-                          Used for custom browser binaries in future implementations.
-        """
-        self.browser_paths = browser_paths
+    """Factory class for instantiating browser automation clients."""
 
     def get_client(
         self,
@@ -43,20 +47,21 @@ class ClientUtils:
         """
         Get a client instance for the specified browser type.
 
-        Args:
-            browser_type: The type of browser to instantiate
-            tracker_list: Optional TrackerList for cookie annotation
-
-        Returns:
-            Client instance for the specified browser
-
         Raises:
             ValueError: If the requested browser type is not supported
         """
-        if browser_type == Browser.CHROMIUM:
-            return ChromiumClient(tracker_list=tracker_list)
-        else:
-            raise ValueError(f"Unsupported browser type: {browser_type.value}")
+        if browser_type in set(Browser):
+            channel         = _BROWSER_CHANNEL.get(browser_type)
+            env_key         = _BROWSER_ENV_KEY.get(browser_type)
+            executable_path = os.environ.get(env_key) if env_key else None
+            if browser_type in {Browser.BRAVE, Browser.DUCKDUCKGO} and not executable_path:
+                raise ValueError(f"Executable path for {browser_type.value} not found in environment variable {env_key}")
+            return ChromiumClient(
+                tracker_list=tracker_list,
+                channel=channel,
+                executable_path=executable_path,
+            )
+        raise ValueError(f"Unsupported browser type: {browser_type.value}")
 
     @staticmethod
     async def run_for_page(
@@ -70,9 +75,7 @@ class ClientUtils:
         headless: Optional[bool] = False,
         tracker_list: Optional[TrackerList] = None,
     ) -> None:
-        client = ClientUtils(browser_paths={}).get_client(
-            browser, tracker_list=tracker_list
-        )
+        client = ClientUtils().get_client(browser, tracker_list=tracker_list)
 
         async def behavior_callback(client_instance, behavior_params):
             await client_instance._behavior_non_interactive(

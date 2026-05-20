@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from client import trackers
-from client.client_utils import ClientUtils
+from client.client_utils import Browser, ClientUtils
 
 
 def signal_handler(signum, frame):
@@ -35,6 +35,7 @@ try:
             ],
             concurrency=4,
             tracker_list=tracker_list,
+            browser=Browser.BRAVE,
         )
     )
 except KeyboardInterrupt:

@@ -16,15 +16,20 @@ class ChromiumClient(Client):
     like cookie management and network monitoring.
     """
 
-    def __init__(self, tracker_list: Optional[TrackerList] = None):
+    def __init__(
+        self,
+        tracker_list: Optional[TrackerList] = None,
+        channel: Optional[str] = None,
+        executable_path: Optional[str] = None,
+    ):
         self.playwright = None
         self.browser: Browser | None = None
         self.context: BrowserContext | None = None
         self.page: Page | None = None
         self.client = None
-        # tracker list for annotating cookies with `is_tracker`
-        # if None, is_tracker will not be included in the output JSON
         self.tracker_list = tracker_list
+        self.channel = channel
+        self.executable_path = executable_path
 
     async def visit_page(
         self,
@@ -62,7 +67,11 @@ class ChromiumClient(Client):
         - Clears existing cookies
         """
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=headless)
+        self.browser = await self.playwright.chromium.launch(
+            headless=headless,
+            channel=self.channel,
+            executable_path=self.executable_path,
+        )
         self.context = await self.browser.new_context()
         self.page = await self.context.new_page()
         self.client = await self.context.new_cdp_session(self.page)
