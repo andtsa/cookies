@@ -7,8 +7,8 @@ class TrackerUtil:
     implemented here when the stubs are filled in.
     """
 
-    def _on_request_sent(self, event) -> None:
+    def on_request_sent(self, event) -> None:
         pass
 
-    def _on_response_extra(self, event) -> None:
+    def on_response_extra(self, event) -> None:
         pass

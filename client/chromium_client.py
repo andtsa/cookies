@@ -83,8 +83,8 @@ class ChromiumClient(Client):
         await self.client.send("Network.enable")
         await self.client.send("Network.clearBrowserCookies")
 
-        self.client.on("Network.requestWillBeSent", self.tracker_util._on_request_sent)
-        self.client.on("Network.responseReceivedExtraInfo", self.tracker_util._on_response_extra)
+        self.client.on("Network.requestWillBeSent", self.tracker_util.on_request_sent)
+        self.client.on("Network.responseReceivedExtraInfo", self.tracker_util.on_response_extra)
 
         print("Browser setup complete.")
 

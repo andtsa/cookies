@@ -60,8 +60,8 @@ class SimplePlaywrightClient(Client):
         self.context = await self.browser.new_context()
         self.page = await self.context.new_page()
         await self.context.clear_cookies()
-        self.page.on("request", self.tracker_util._on_request_sent)
-        self.page.on("response", self.tracker_util._on_response_extra)
+        self.page.on("request", self.tracker_util.on_request_sent)
+        self.page.on("response", self.tracker_util.on_response_extra)
         print(f"{self.browser_type.value.capitalize()} setup complete.")
 
     async def _navigate_to_page(
