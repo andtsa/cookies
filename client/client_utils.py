@@ -12,6 +12,7 @@ load_dotenv()
 
 from .chromium_client import ChromiumClient
 from .client import Client
+from .simple_playwright_client import SimplePlaywrightClient
 from .trackers import TrackerList
 
 
@@ -23,6 +24,8 @@ class Browser(Enum):
     EDGE       = "edge"
     BRAVE      = "brave"
     DUCKDUCKGO = "duckduckgo"
+    FIREFOX    = "firefox"
+    WEBKIT     = "webkit"
 
 
 _BROWSER_CHANNEL: Dict[Browser, str] = {
@@ -50,6 +53,8 @@ class ClientUtils:
         Raises:
             ValueError: If the requested browser type is not supported
         """
+        if browser_type in {Browser.FIREFOX, Browser.WEBKIT}:
+            return SimplePlaywrightClient(browser_type=browser_type, tracker_list=tracker_list)
         if browser_type in set(Browser):
             channel         = _BROWSER_CHANNEL.get(browser_type)
             env_key         = _BROWSER_ENV_KEY.get(browser_type)
@@ -94,7 +99,7 @@ class ClientUtils:
                 url=url,
                 behavior=behavior_callback,
                 on_close=on_close_callback,
-                params={"wait_time_ms": wait_time_ms},
+                params=params,
                 output_args={
                     "output_dir": output_dir,
                     "output_name": output_name,
@@ -135,7 +140,13 @@ class ClientUtils:
                     output_dir=output_dir,
                     output_name=safe_name,
                     browser=browser,
-                    params={"target_url": url},
+                    params={
+                        "target_url":    url,
+                        "browser":       browser.value,
+                        "wait_time_ms":  wait_time_ms,
+                        "timeout_ms":    timeout_ms,
+                        "headless":      headless,
+                    },
                     timeout_ms=timeout_ms,
                     headless=headless,
                     tracker_list=tracker_list,

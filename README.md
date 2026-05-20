@@ -46,9 +46,9 @@ conda activate cookies
 pip install -r requirements.txt
 ```
 
-**3. Install Playwright's Chromium browser**
+**3. Install Playwright browsers**
 ```bash
-playwright install chromium
+python -m playwright install chromium firefox webkit
 ```
 ---
 

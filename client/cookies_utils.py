@@ -87,13 +87,13 @@ class CookiesUtils:
 
         site_metadata = {
             "collection_timestamp": now.isoformat(),
-            "wait_time_seconds": params.get("wait_time_seconds"),
             "total_cookies": len(cookies_metadata),
             "num_session": num_session,
             "num_persistent": num_persistent,
             "avg_lifetime_days": avg_lifetime_days,
             "min_lifetime_days": min_lifetime_days,
             "max_lifetime_days": max_lifetime_days,
+            **(params or {}),
         }
 
         if tracker_list is not None:
@@ -105,7 +105,6 @@ class CookiesUtils:
             )
 
         output_data = {
-            "target_url": params.get("target_url"),
             "site_metadata": site_metadata,
             "cookies": cookies_metadata,
         }

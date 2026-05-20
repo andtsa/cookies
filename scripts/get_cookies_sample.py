@@ -35,7 +35,7 @@ try:
             ],
             concurrency=4,
             tracker_list=tracker_list,
-            browser=Browser.BRAVE,
+            browser=Browser.WEBKIT,
         )
     )
 except KeyboardInterrupt:
