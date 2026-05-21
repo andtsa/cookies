@@ -6,6 +6,8 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
+from classifier.sensitive_classifier import SensitiveClassifier
+
 from .trackers import TrackerList
 from .trackers.matcher import EasyPrivacyMatcher
 
@@ -45,6 +47,7 @@ class BrowserConfig:
     wait_time_ms: int = 5_000
     tracker_list: Optional[TrackerList] = None
     matcher: Optional[EasyPrivacyMatcher] = None
+    classifier: Optional[SensitiveClassifier] = None
     intercept_cookie_reads: bool = True
 
 

@@ -1,6 +1,6 @@
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, Optional, cast
+from typing import Callable, Optional, cast
 from urllib.parse import urlparse
 
 from playwright.async_api import Browser, Playwright

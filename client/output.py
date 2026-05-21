@@ -39,6 +39,7 @@ class OutputFormat:
         output: Outfile,
         tracker_list: Optional[TrackerList] = None,
         cookie_read_interceptor: Optional[CookieReadInterceptor] = None,
+        sensitivity_result: Optional[Dict[str, Any]] = None,
     ) -> None:
         now = datetime.now(timezone.utc)
         now_ts = now.timestamp()
@@ -145,6 +146,7 @@ class OutputFormat:
                 {"domain": domain, "count": count}
                 for domain, count in blocked_domains.most_common(100)
             ],
+            "sensitivity": sensitivity_result
         }
 
         if tracker_list is not None:

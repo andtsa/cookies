@@ -4,6 +4,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from classifier.sensitive_classifier import SensitiveClassifier
 from client.api import Browser, ClientAPI
 from client.config import BrowserConfig, CrawlConfig
 from client.trackers import Detections, TrackerList
@@ -111,12 +112,19 @@ def main():
         default=True,
         help="Intercept and record all JS document.cookie reads per page.",
     )
+    parser.add_argument(
+        "--classifier",
+        action="store_true",
+        default=True,
+        help="Use a classifier to determine whether a website is sensitive or not",
+    )
 
     args = parser.parse_args()
     browsers = [Browser(b) for b in args.browsers]
 
     tracker_list = None
     matcher = None
+    classifier = None
     if args.tracker_lists:
         tracker_list = TrackerList()
         tracker_list.load(
@@ -124,6 +132,8 @@ def main():
             cache_dir=args.tracker_cache_dir,
         )
         matcher = EasyPrivacyMatcher(tracker_list._easyprivacy)
+    if args.classifier:
+        classifier = SensitiveClassifier()
 
     crawl_cfg = CrawlConfig(
         concurrency=args.concurrency,
@@ -147,6 +157,7 @@ def main():
                 matcher=matcher,
                 intercept_cookie_reads=args.cookie_reads,
                 browser_type=browser,
+                classifier=classifier,
             )
             await ClientAPI.process_batch_from_csv(
                 source_file_path=args.input,
