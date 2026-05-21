@@ -4,12 +4,11 @@ from typing import Any, Callable, Dict, Optional
 import tldextract
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
-from client.trackers.matcher import EasyPrivacyMatcher
 from client.trackers.reads import CookieReadInterceptor
 
 from .client import Client
+from .config import BrowserConfig
 from .cookies_utils import CookiesUtils
-from .trackers import TrackerList
 from .util import _parse_set_cookie_name
 
 
@@ -21,22 +20,14 @@ class ChromiumClient(Client):
     like cookie management and network monitoring.
     """
 
-    def __init__(
-        self,
-        tracker_list: Optional[TrackerList] = None,
-        matcher=None,
-        intercept_cookie_reads: bool = False,
-    ):
+    def __init__(self, cfg: BrowserConfig):
+        self.cfg = cfg
         self.playwright = None
         self.browser: Browser | None = None
         self.context: BrowserContext | None = None
         self.page: Page | None = None
         self.client = None
-        self.tracker_list = tracker_list
 
-        self.easyprivacy_matcher: EasyPrivacyMatcher | None = matcher
-
-        self._intercept_cookie_reads: bool = intercept_cookie_reads
         self._cookie_read_interceptor: CookieReadInterceptor | None = None
         self._request_context: dict[str, dict] = {}
         self._cookie_set_context: dict[tuple, dict] = {}
@@ -47,10 +38,7 @@ class ChromiumClient(Client):
         url: str,
         behavior: Callable,
         on_close: Callable,
-        params: Dict[str, Any],
         output_args: Dict[str, Any],
-        timeout_ms: Optional[int] = 10000,
-        headless: Optional[bool] = False,
     ) -> None:
         """
         Orchestrate the complete page visit workflow.
@@ -58,36 +46,22 @@ class ChromiumClient(Client):
         Executes: setup → navigate → behavior → on_close sequence
         """
         try:
-            await self._setup(url=url, headless=headless)
-            await self._navigate_to_page(url, timeout_ms=timeout_ms)
-            await behavior(self, params)
+            await self._setup(url=url)
+            await self._navigate_to_page(url)
+            await behavior(self)
             await on_close(self, output_args)
         except Exception as e:
             print(f"Error in chromium client during visit_page:\n\t{e}")
             await self._on_close_empty()
             raise
 
-    async def _setup(
-        self,
-        url: str,
-        headless: Optional[bool] = False,
-    ) -> None:
-        """
-        Initialize Chromium browser with CDP session.
-
-        - Launches Chromium (headless=False for visibility)
-        - Creates browser context and page
-        - Establishes CDP session for advanced control
-        - Enables Page and Network domains
-        - Clears existing cookies
-        """
+    async def _setup(self, url: str) -> None:
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=headless)
+        self.browser = await self.playwright.chromium.launch(headless=self.cfg.headless)
         self.context = await self.browser.new_context()
         self.page = await self.context.new_page()
         self.client = await self.context.new_cdp_session(self.page)
 
-        # Enable required CDP domains
         await self.client.send("Page.enable")
         await self.client.send("Network.enable")
         await self.client.send("Network.clearBrowserCookies")
@@ -95,35 +69,20 @@ class ChromiumClient(Client):
         self.client.on("Network.requestWillBeSent", self._on_request_sent)
         self.client.on("Network.responseReceivedExtraInfo", self._on_response_extra)
 
-        if self._intercept_cookie_reads:
+        if self.cfg.intercept_cookie_reads:
             domain = tldextract.extract(url).registered_domain or url
             self._cookie_read_interceptor = CookieReadInterceptor(visited_domain=domain)
             await self._cookie_read_interceptor.attach(self.page)
 
         print("Browser setup complete.")
 
-    async def _navigate_to_page(
-        self, url: str, timeout_ms: Optional[int] = 10000
-    ) -> None:
+    async def _navigate_to_page(self, url: str) -> None:
         assert self.page is not None, "Page not initialized"
-        """
-        Navigate to the target URL using CDP.
-
-        Args:
-            url: The target URL to navigate to
-            timeout_ms: Timeout in milliseconds for page load
-        """
         print(f"Navigating to {url}...")
-        await self.page.goto(url, wait_until="load", timeout=timeout_ms)
+        await self.page.goto(url, wait_until="load", timeout=self.cfg.timeout_ms)
 
-    async def _behavior_non_interactive(self, milliseconds: int) -> None:
-        """
-        Wait passively for the specified duration.
-
-        Args:
-            milliseconds: Duration to wait in milliseconds
-        """
-        seconds = milliseconds / 1000.0
+    async def _behavior_non_interactive(self) -> None:
+        seconds = self.cfg.wait_time_ms / 1000.0
         print(f"Waiting for {seconds} seconds to let trackers load...")
         await asyncio.sleep(seconds)
 
@@ -141,8 +100,8 @@ class ChromiumClient(Client):
         }
 
         easyprivacy_match = {"matched": False}
-        if self.easyprivacy_matcher and request_url and document_url:
-            result = self.easyprivacy_matcher.match(request_url, document_url, cdp_type)
+        if self.cfg.matcher and request_url and document_url:
+            result = self.cfg.matcher.match(request_url, document_url, cdp_type)
             easyprivacy_match = result.to_dict()
 
         self._request_log.append(
@@ -227,8 +186,8 @@ class ChromiumClient(Client):
             self._request_log,
             output_dir,
             output_name,
-            params,
-            self.tracker_list,
+            {**params, "wait_time_ms": self.cfg.wait_time_ms},
+            self.cfg.tracker_list,
             self._cookie_read_interceptor,
         )
 

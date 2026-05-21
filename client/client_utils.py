@@ -3,14 +3,12 @@ import csv
 import os
 import re
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from urllib.parse import urlparse
-
-from client.trackers.matcher import EasyPrivacyMatcher
 
 from .chromium_client import ChromiumClient
 from .client import Client
-from .trackers import TrackerList
+from .config import BrowserConfig, CrawlConfig
 
 
 class Browser(Enum):
@@ -23,50 +21,23 @@ class ClientUtils:
     """Factory and batch-runner for browser automation clients."""
 
     @staticmethod
-    def get_client(
-        browser_type: Browser,
-        tracker_list: Optional[TrackerList] = None,
-        matcher: EasyPrivacyMatcher | None = None,
-        intercept_cookie_reads: bool = True,
-    ) -> Client:
-        """
-        Return a client instance for the given browser type.
-
-        Raises ValueError if the browser type is not supported.
-        """
+    def get_client(browser_type: Browser, cfg: BrowserConfig) -> Client:
         if browser_type == Browser.CHROMIUM:
-            return ChromiumClient(
-                tracker_list=tracker_list,
-                matcher=matcher,
-                intercept_cookie_reads=intercept_cookie_reads,
-            )
+            return ChromiumClient(cfg=cfg)
         raise ValueError(f"Unsupported browser type: {browser_type.value}")
 
     @staticmethod
     async def run_for_page(
         url: str,
-        wait_time_ms: int,
         output_dir: str,
         output_name: str,
         browser: Browser,
-        params: Dict[str, Any],
-        timeout_ms: Optional[int] = 10000,
-        headless: Optional[bool] = False,
-        tracker_list: Optional[TrackerList] = None,
-        matcher: EasyPrivacyMatcher | None = None,
-        intercept_cookie_reads: bool = True,
+        cfg: BrowserConfig,
     ) -> None:
-        client = ClientUtils.get_client(
-            browser,
-            tracker_list=tracker_list,
-            matcher=matcher,
-            intercept_cookie_reads=intercept_cookie_reads,
-        )
+        client = ClientUtils.get_client(browser, cfg=cfg)
 
-        async def behavior_callback(client_instance, behavior_params):
-            await client_instance._behavior_non_interactive(
-                behavior_params["wait_time_ms"]
-            )
+        async def behavior_callback(client_instance):
+            await client_instance._behavior_non_interactive()
 
         async def on_close_callback(client_instance, close_args):
             await client_instance._on_close_get_cookies_snapshot(
@@ -80,14 +51,11 @@ class ClientUtils:
                 url=url,
                 behavior=behavior_callback,
                 on_close=on_close_callback,
-                params={"wait_time_ms": wait_time_ms},
                 output_args={
                     "output_dir": output_dir,
                     "output_name": output_name,
-                    "params": params,
+                    "params": {"target_url": url},
                 },
-                timeout_ms=timeout_ms,
-                headless=headless,
             )
         except Exception as e:
             print(f"Error during page visit: {e}")
@@ -98,20 +66,16 @@ class ClientUtils:
         websites: List[str],
         output_dir: str = "cookies_data",
         browser: Browser = Browser.CHROMIUM,
-        timeout_ms: int = 10000,
-        headless: bool = False,
-        limit: Optional[int] = None,
-        wait_time_ms: int = 5000,
-        concurrency: int = 1,
-        tracker_list: Optional[TrackerList] = None,
-        matcher: EasyPrivacyMatcher | None = None,
-        overwrite: bool = False,
-        failed_sites_path: Optional[str] = None,
-        sleep_between_ms: int = 0,
-        intercept_cookie_reads: bool = True,
+        browser_cfg: Optional[BrowserConfig] = None,
+        crawl_cfg: Optional[CrawlConfig] = None,
     ) -> None:
-        urls = websites[:limit] if limit is not None else websites
-        semaphore = asyncio.Semaphore(concurrency)
+        if browser_cfg is None:
+            browser_cfg = BrowserConfig()
+        if crawl_cfg is None:
+            crawl_cfg = CrawlConfig()
+
+        urls = websites[: crawl_cfg.limit] if crawl_cfg.limit is not None else websites
+        semaphore = asyncio.Semaphore(crawl_cfg.concurrency)
 
         async def process_one(url: str) -> None:
             async with semaphore:
@@ -121,7 +85,7 @@ class ClientUtils:
                 safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", netloc) + ".json"
                 output_path = f"{output_dir}/{safe_name}"
 
-                if not overwrite and os.path.exists(output_path):
+                if not crawl_cfg.overwrite and os.path.exists(output_path):
                     print(f"Skipping {url}, already collected.")
                     return
 
@@ -129,25 +93,21 @@ class ClientUtils:
                 try:
                     await ClientUtils.run_for_page(
                         url=url,
-                        wait_time_ms=wait_time_ms,
                         output_dir=output_dir,
                         output_name=safe_name,
                         browser=browser,
-                        params={"target_url": url},
-                        timeout_ms=timeout_ms,
-                        headless=headless,
-                        tracker_list=tracker_list,
-                        matcher=matcher,
-                        intercept_cookie_reads=intercept_cookie_reads,
+                        cfg=browser_cfg,
                     )
                 except Exception as e:
                     print(f"Failed for {url}: {e}")
-                    if failed_sites_path:
-                        with open(failed_sites_path, "a", encoding="utf-8") as f:
+                    if crawl_cfg.failed_sites_path:
+                        with open(
+                            crawl_cfg.failed_sites_path, "a", encoding="utf-8"
+                        ) as f:
                             f.write(f"{url}\n")
 
-                if sleep_between_ms > 0:
-                    await asyncio.sleep(sleep_between_ms / 1000)
+                if crawl_cfg.sleep_between_ms > 0:
+                    await asyncio.sleep(crawl_cfg.sleep_between_ms / 1000)
 
         await asyncio.gather(*[process_one(url) for url in urls])
 
@@ -156,24 +116,16 @@ class ClientUtils:
         source_file_path: str,
         output_dir: str = "cookies_data",
         browser: Browser = Browser.CHROMIUM,
-        timeout_ms: int = 10000,
-        headless: bool = False,
-        limit: Optional[int] = None,
-        wait_time_ms: int = 5000,
-        concurrency: int = 1,
-        tracker_list: Optional[TrackerList] = None,
-        matcher: EasyPrivacyMatcher | None = None,
-        overwrite: bool = False,
-        failed_sites_path: Optional[str] = None,
-        sleep_between_ms: int = 0,
-        intercept_cookie_reads: bool = True,
+        browser_cfg: Optional[BrowserConfig] = None,
+        crawl_cfg: Optional[CrawlConfig] = None,
     ) -> None:
         _URL_COLUMNS = ("url", "URL", "website", "Website", "domain", "Domain")
         websites: List[str] = []
         with open(source_file_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             url_col = next(
-                (c for c in _URL_COLUMNS if c in (reader.fieldnames or [])), None
+                (c for c in _URL_COLUMNS if c in (reader.fieldnames or [])),
+                None,
             )
             if url_col is not None:
                 for row in reader:
@@ -181,7 +133,7 @@ class ClientUtils:
                     if value:
                         websites.append(value)
             else:
-                # no recognized header —> treat as headerless CSV, assume domain in column index 1
+                # headerless CSV — assume rank,domain format
                 f.seek(0)
                 for row in csv.reader(f):
                     if len(row) >= 2:
@@ -193,15 +145,6 @@ class ClientUtils:
             websites=websites,
             output_dir=output_dir,
             browser=browser,
-            timeout_ms=timeout_ms,
-            headless=headless,
-            limit=limit,
-            wait_time_ms=wait_time_ms,
-            concurrency=concurrency,
-            tracker_list=tracker_list,
-            matcher=matcher,
-            overwrite=overwrite,
-            failed_sites_path=failed_sites_path,
-            sleep_between_ms=sleep_between_ms,
-            intercept_cookie_reads=intercept_cookie_reads,
+            browser_cfg=browser_cfg,
+            crawl_cfg=crawl_cfg,
         )

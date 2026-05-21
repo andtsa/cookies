@@ -135,7 +135,9 @@ class CookiesUtils:
 
         site_metadata = {
             "collection_timestamp": now.isoformat(),
-            "wait_time_seconds": params.get("wait_time_seconds"),
+            "wait_time_seconds": (
+                params["wait_time_ms"] / 1000 if "wait_time_ms" in params else None
+            ),
             "total_cookies": len(cookies_metadata),
             "num_session": num_session,
             "num_persistent": num_persistent,

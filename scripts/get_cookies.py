@@ -5,6 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from client.client_utils import Browser, ClientUtils
+from client.config import BrowserConfig, CrawlConfig
 from client.trackers import Detections, TrackerList
 from client.trackers.matcher import EasyPrivacyMatcher
 
@@ -118,22 +119,29 @@ def main():
         )
         matcher = EasyPrivacyMatcher(tracker_list._easyprivacy)
 
+    browser_cfg = BrowserConfig(
+        headless=args.headless,
+        timeout_ms=args.timeout_ms,
+        wait_time_ms=args.wait_time_ms,
+        tracker_list=tracker_list,
+        matcher=matcher,
+        intercept_cookie_reads=args.cookie_reads,
+    )
+    crawl_cfg = CrawlConfig(
+        concurrency=args.concurrency,
+        limit=args.limit,
+        overwrite=args.overwrite,
+        failed_sites_path=args.failed_sites,
+        sleep_between_ms=args.sleep_between_ms,
+    )
+
     asyncio.run(
         ClientUtils.process_batch_from_csv(
             source_file_path=args.input,
             output_dir=args.output_dir,
             browser=browser,
-            timeout_ms=args.timeout_ms,
-            headless=args.headless,
-            limit=args.limit,
-            wait_time_ms=args.wait_time_ms,
-            concurrency=args.concurrency,
-            tracker_list=tracker_list,
-            matcher=matcher,
-            overwrite=args.overwrite,
-            failed_sites_path=args.failed_sites,
-            sleep_between_ms=args.sleep_between_ms,
-            intercept_cookie_reads=args.cookie_reads,
+            browser_cfg=browser_cfg,
+            crawl_cfg=crawl_cfg,
         )
     )
 

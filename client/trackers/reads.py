@@ -1,28 +1,3 @@
-"""
-Instruments document.cookie's JavaScript getter via Playwright so that every
-JS read of document.cookie is reported back to Python in real time.
-
-How it works
-~~~~~~~~~~~~
-1.  page.expose_function() registers a Python callback under the name
-    ``__reportCookieRead`` in every frame's window before the page loads.
-2.  page.add_init_script() injects a small JS snippet that replaces the
-    document.cookie getter on Document.prototype with a wrapper that calls
-    ``__reportCookieRead`` each time any script reads document.cookie.
-3.  The wrapper calls the *original* getter and returns its value unchanged,
-    so page behaviour is not affected.
-
-Limitations
-~~~~~~~~~~~
-- Cross-origin iframes: Playwright cannot inject into cross-origin frames,
-  so reads inside those frames are invisible to us. Same-origin iframes *are*
-  covered because add_init_script applies to all same-origin frames.
-- HttpOnly cookies: by design these cannot be read via JS, so they never
-  appear in document.cookie at all — not a limitation of this approach, just
-  the usual restriction.
-- Cookie *writes* (document.cookie = "...") are not intercepted here
-"""
-
 from __future__ import annotations
 
 import asyncio

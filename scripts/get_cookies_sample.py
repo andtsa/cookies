@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from client import trackers
 from client.client_utils import ClientUtils
+from client.config import BrowserConfig, CrawlConfig
 
 
 def signal_handler(signum, frame):
@@ -33,8 +34,8 @@ def main():
                     "https://www.cnn.com",
                     "https://www.washingtonpost.com",
                 ],
-                concurrency=4,
-                tracker_list=tracker_list,
+                browser_cfg=BrowserConfig(tracker_list=tracker_list),
+                crawl_cfg=CrawlConfig(concurrency=4),
             )
         )
     except KeyboardInterrupt:

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict
 
 
 class Client(ABC):
@@ -16,10 +16,7 @@ class Client(ABC):
         url: str,
         behavior: Callable,
         on_close: Callable,
-        params: Dict[str, Any],
         output_args: Dict[str, Any],
-        timeout_ms: Optional[int] = 10000,
-        headless: Optional[bool] = False,
     ) -> None:
         """
         Orchestrate a complete page visit workflow.
@@ -28,19 +25,12 @@ class Client(ABC):
             url: The target URL to visit
             behavior: Callback function to execute after page load (e.g., waiting, clicking)
             on_close: Callback function to execute before closing browser (e.g., snapshot data)
-            params: Parameters to pass to the behavior callback
             output_args: Arguments to pass to the on_close callback
-            timeout_ms: Timeout in milliseconds for page load
-            headless: Whether to run the browser in headless mode
         """
         pass
 
     @abstractmethod
-    async def _setup(
-        self,
-        url: str,
-        headless: Optional[bool] = False,
-    ) -> None:
+    async def _setup(self, url: str) -> None:
         """
         Initialize the browser, context, and any required sessions.
 
@@ -54,9 +44,7 @@ class Client(ABC):
         pass
 
     @abstractmethod
-    async def _navigate_to_page(
-        self, url: str, timeout_ms: Optional[int] = 10000
-    ) -> None:
+    async def _navigate_to_page(self, url: str) -> None:
         """
         Navigate to the specified URL.
 
@@ -67,7 +55,7 @@ class Client(ABC):
         pass
 
     @abstractmethod
-    async def _behavior_non_interactive(self, milliseconds: int) -> None:
+    async def _behavior_non_interactive(self) -> None:
         """
         Execute a passive wait behavior (non-interactive).
 
