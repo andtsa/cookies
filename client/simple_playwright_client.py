@@ -33,6 +33,7 @@ class SimplePlaywrightClient(Client):
     async def _navigate_to_page(self, url: str) -> None:
         assert self.page is not None, "Page not initialized"
         await self.page.goto(url, wait_until="load", timeout=self.cfg.timeout_ms)
+        self.page_html = await self.page.content()
 
     async def _on_close_get_cookies_snapshot(self, output: Outfile) -> None:
         assert self.context is not None, "Context not initialized"
@@ -42,6 +43,8 @@ class SimplePlaywrightClient(Client):
 
         cookies = await self.context.cookies()
 
+        sensitivity_result = self.cfg.classifier.classify_html(self.page_html) if self.cfg.classifier else None
+
         OutputFormat.process_and_save(
             cookies,
             self._cookie_set_context,
@@ -49,6 +52,7 @@ class SimplePlaywrightClient(Client):
             output,
             self.cfg.tracker_list,
             self._cookie_read_interceptor,
+            sensitivity_result,
         )
 
         self._log(f"{len(cookies)} cookies -> {output.path}")
