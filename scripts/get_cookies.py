@@ -43,7 +43,10 @@ def main():
         help="Time to wait on each page after load in milliseconds (default: 5000).",
     )
     parser.add_argument(
-        "--headless", type=bool, default=True, help="Run browser in headless mode."
+        "--headless",
+        type=bool,
+        default=True,
+        help="Whether to run the browser in headless mode (default: True).",
     )
     parser.add_argument(
         "--limit",
