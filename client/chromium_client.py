@@ -4,6 +4,7 @@ import os
 from typing import Callable, Dict, Any, Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from .client import Client
+from classifier.sensitive_classifier import SensitiveClassifier
 
 
 class ChromiumClient(Client):
@@ -20,6 +21,7 @@ class ChromiumClient(Client):
         self.context: BrowserContext = None
         self.page: Page = None
         self.client = None
+        self.sensitive_classifier = SensitiveClassifier()
     
     async def visit_page(
         self, 
@@ -79,6 +81,7 @@ class ChromiumClient(Client):
         """
         print(f"Navigating to {url}...")
         await self.page.goto(url, wait_until='load', timeout=timeout_ms)
+        self.page_html = await self.page.content()
     
     async def _behavior_non_interactive(self, milliseconds: int) -> None:
         """
@@ -111,13 +114,27 @@ class ChromiumClient(Client):
         
         print(f"Found {len(cookies)} cookies.")
         
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-            output_path = os.path.join(output_dir, output_name)
-        else:
-            output_path = output_name
+        sensitivity_result = self.sensitive_classifier.classify_html(
+            self.page_html
+        )
         
-        output_data = {**params, 'cookies': cookies}       
+        category = sensitivity_result.get("predicted_category", "Unknown")
+        # Sanitize category name for filesystem
+        safe_category = category.replace(" ", "_").lower()
+        
+        if output_dir:
+            final_output_dir = os.path.join(output_dir, safe_category)
+            os.makedirs(final_output_dir, exist_ok=True)
+            output_path = os.path.join(final_output_dir, output_name)
+        else:
+            output_path = os.path.join(safe_category, output_name)
+            os.makedirs(safe_category, exist_ok=True)
+        
+        output_data = {
+            **params,
+            "sensitivity": sensitivity_result,
+            "cookies": cookies
+        }            
         print(f"Writing data to {output_path}...")
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=4)

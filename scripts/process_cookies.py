@@ -47,57 +47,66 @@ def process_cookies(input_dir, output_dir):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    for filename in os.listdir(input_dir):
-        if filename.endswith('.json'):
-            input_path = os.path.join(input_dir, filename)
-            output_path = os.path.join(output_dir, filename)
+    for root, dirs, files in os.walk(input_dir):
+        for filename in files:
+            if filename.endswith('.json'):
+                input_path = os.path.join(root, filename)
+                
+                # Maintain relative path structure
+                rel_path = os.path.relpath(root, input_dir)
+                current_output_dir = os.path.join(output_dir, rel_path)
+                
+                if not os.path.exists(current_output_dir):
+                    os.makedirs(current_output_dir)
+                
+                output_path = os.path.join(current_output_dir, filename)
 
-            print(f"Processing {filename}...")
-            
-            with open(input_path, 'r', encoding='utf-8') as f:
-                try:
-                    data = json.load(f)
-                except json.JSONDecodeError:
-                    print(f"Error decoding {filename}, skipping.")
+                print(f"Processing {input_path}...")
+                
+                with open(input_path, 'r', encoding='utf-8') as f:
+                    try:
+                        data = json.load(f)
+                    except json.JSONDecodeError:
+                        print(f"Error decoding {filename}, skipping.")
+                        continue
+
+                target_url = data.get('target_url')
+                if not target_url:
+                    print(f"No target_url in {filename}, skipping.")
                     continue
 
-            target_url = data.get('target_url')
-            if not target_url:
-                print(f"No target_url in {filename}, skipping.")
-                continue
+                target_hostname = urlparse(target_url).hostname
+                if not target_hostname:
+                    print(f"Could not parse hostname from {target_url} in {filename}, skipping.")
+                    continue
 
-            target_hostname = urlparse(target_url).hostname
-            if not target_hostname:
-                print(f"Could not parse hostname from {target_url} in {filename}, skipping.")
-                continue
+                cookies = data.get('cookies', [])
+                processed_cookies = []
 
-            cookies = data.get('cookies', [])
-            processed_cookies = []
+                for cookie in cookies:
+                    cookie_domain = cookie.get('domain', '')
+                    
+                    try:
+                        if is_first_party(target_hostname, cookie_domain):
+                            party_type = 'first_party'
+                        else:
+                            party_type = 'third_party'
 
-            for cookie in cookies:
-                cookie_domain = cookie.get('domain', '')
-                
-                try:
-                    if is_first_party(target_hostname, cookie_domain):
-                        party_type = 'first_party'
-                    else:
-                        party_type = 'third_party'
+                    except ValueError as e:
+                        print(f"Skipping cookie due to error: {e}")
+                        party_type = 'unknown'
+                    
+                    processed_cookie = {**cookie, 'party_type': party_type}
+                    processed_cookies.append(processed_cookie)
 
-                except ValueError as e:
-                    print(f"Skipping cookie due to error: {e}")
-                    party_type = 'unknown'
-                
-                processed_cookie = {**cookie, 'party_type': party_type}
-                processed_cookies.append(processed_cookie)
+                output_data = {
+                    **data, # Preserve original data including sensitivity
+                    'target_hostname': target_hostname,
+                    'cookies': processed_cookies
+                }
 
-            output_data = {
-                'target_url': target_url,
-                'target_hostname': target_hostname,
-                'cookies': processed_cookies
-            }
-
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(output_data, f, indent=4)
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    json.dump(output_data, f, indent=4)
 
     print(f"Finished processing. Results saved in {output_dir}")
 
