@@ -73,7 +73,9 @@ def plot_ep_effectiveness(data_dir: str, out_dir: str) -> None:
         labels = [f"Tracker\n{ep_tracker:,}", f"Non-Tracker\n{ep_clean:,}"]
         colors = [ACCENT, COLORS[2]]
         wedges, _ = ax.pie(
-            vals, colors=colors, startangle=90,
+            vals,
+            colors=colors,
+            startangle=90,
             wedgeprops={"width": 0.5, "edgecolor": BG, "linewidth": 2},
         )
         for i, wedge in enumerate(wedges):
@@ -83,28 +85,45 @@ def plot_ep_effectiveness(data_dir: str, out_dir: str) -> None:
             ax.annotate(
                 f"{labels[i]}\n({vals[i]:.1f}%)",
                 xy=(0.9 * np.cos(np.deg2rad(angle)), 0.9 * np.sin(np.deg2rad(angle))),
-                xytext=(x, y), ha="center", va="center", fontsize=10,
-                fontweight="bold", color=DARK,
+                xytext=(x, y),
+                ha="center",
+                va="center",
+                fontsize=10,
+                fontweight="bold",
+                color=DARK,
                 arrowprops=dict(arrowstyle="-", color=DARK, lw=1.1),
             )
         ax.set_title(
             f"Cookies Set by EP-Matched Requests\n(n = {ep_total:,})",
-            fontsize=13, pad=20,
+            fontsize=13,
+            pad=20,
         )
     else:
-        ax.text(0.5, 0.5, "No EP-matched\nrequests found", ha="center", va="center",
-                transform=ax.transAxes, fontsize=13, color=MID)
+        ax.text(
+            0.5,
+            0.5,
+            "No EP-matched\nrequests found",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=13,
+            color=MID,
+        )
 
     # ── Right: "Of tracker cookies, how many came from EP-matched requests?" ──
     ax2 = axes[1]
     tracker_total = ep_tracker + nep_tracker
     if tracker_total:
         vals2 = [ep_tracker / tracker_total * 100, nep_tracker / tracker_total * 100]
-        labels2 = [f"Set by EP\nmatched request\n{ep_tracker:,}",
-                   f"Set by\nunmatched request\n{nep_tracker:,}"]
+        labels2 = [
+            f"Set by EP\nmatched request\n{ep_tracker:,}",
+            f"Set by\nunmatched request\n{nep_tracker:,}",
+        ]
         colors2 = [ACCENT, ACCENT2]
         wedges2, _ = ax2.pie(
-            vals2, colors=colors2, startangle=90,
+            vals2,
+            colors=colors2,
+            startangle=90,
             wedgeprops={"width": 0.5, "edgecolor": BG, "linewidth": 2},
         )
         for i, wedge in enumerate(wedges2):
@@ -114,19 +133,34 @@ def plot_ep_effectiveness(data_dir: str, out_dir: str) -> None:
             ax2.annotate(
                 f"{labels2[i]}\n({vals2[i]:.1f}%)",
                 xy=(0.9 * np.cos(np.deg2rad(angle)), 0.9 * np.sin(np.deg2rad(angle))),
-                xytext=(x, y), ha="center", va="center", fontsize=10,
-                fontweight="bold", color=DARK,
+                xytext=(x, y),
+                ha="center",
+                va="center",
+                fontsize=10,
+                fontweight="bold",
+                color=DARK,
                 arrowprops=dict(arrowstyle="-", color=DARK, lw=1.1),
             )
         ax2.set_title(
             f"Tracker Cookies by Request Source\n(n = {tracker_total:,} tracker cookies)",
-            fontsize=13, pad=20,
+            fontsize=13,
+            pad=20,
         )
     else:
-        ax2.text(0.5, 0.5, "No tracker cookies\nfound", ha="center", va="center",
-                 transform=ax2.transAxes, fontsize=13, color=MID)
+        ax2.text(
+            0.5,
+            0.5,
+            "No tracker cookies\nfound",
+            ha="center",
+            va="center",
+            transform=ax2.transAxes,
+            fontsize=13,
+            color=MID,
+        )
 
-    fig.suptitle("EasyPrivacy Request Blocking vs. Tracker Cookies", fontsize=15, y=1.02)
+    fig.suptitle(
+        "EasyPrivacy Request Blocking vs. Tracker Cookies", fontsize=15, y=1.02
+    )
     plt.tight_layout()
     save_figure(out_dir, "plot_ep_effectiveness.png")
 

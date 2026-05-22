@@ -6,13 +6,9 @@ from bs4 import BeautifulSoup
 class SensitiveClassifier:
 
     def __init__(self):
-        self.vectorizer = joblib.load(
-            "classifier/vectorizer_balanced_20k_features.pkl"
-        )
+        self.vectorizer = joblib.load("classifier/vectorizer_balanced_20k_features.pkl")
 
-        self.classifier = joblib.load(
-            "classifier/classifier_balanced_20k_features.pkl"
-        )
+        self.classifier = joblib.load("classifier/classifier_balanced_20k_features.pkl")
 
         self.labels = self.classifier.classes_
 
@@ -37,13 +33,10 @@ class SensitiveClassifier:
 
         probabilities = self.classifier.predict_proba(X)[0]
 
-        scores = {
-            label: float(prob)
-            for label, prob in zip(self.labels, probabilities)
-        }
+        scores = {label: float(prob) for label, prob in zip(self.labels, probabilities)}
 
         return {
             "predicted_category": prediction,
             "is_sensitive": prediction != "Non-sensitive",
-            "scores": scores
+            "scores": scores,
         }
