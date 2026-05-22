@@ -111,7 +111,7 @@ def process_cookies(input_dir, output_dir):
                 if tracker_detection is not None:
                     processed_cookie["is_tracker"] = tracker_detection.to_dict()
                 else:
-                    processed_cookie["is_tracker"] = False
+                    processed_cookie["is_tracker"] = None  # null, not False
 
                 processed_cookies.append(processed_cookie)
 

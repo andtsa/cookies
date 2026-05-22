@@ -1,6 +1,4 @@
 """
-adblock_parser.py
-~~~~~~~~~~~~~~~~~
 Parser for Adblock Plus / uBlock Origin filter list format (.txt).
 
 Produces a FilterList dataclass containing typed rule objects — one
@@ -499,13 +497,13 @@ class FilterList:
 
     def __init__(
         self,
-        metadata: dict[str, str] = {},
-        rules: list[AnyRule] = [],
-        parse_errors: list[tuple[int, str, str]] = [],
+        metadata: dict[str, str] | None = None,
+        rules: list[AnyRule] | None = None,
+        parse_errors: list[tuple[int, str, str]] | None = None,
     ) -> None:
-        self.metadata = metadata
-        self.rules = rules
-        self.parse_errors = parse_errors
+        self.metadata = metadata if metadata is not None else {}
+        self.rules = rules if rules is not None else []
+        self.parse_errors = parse_errors if parse_errors is not None else []
 
     # --- Filtered views (properties for convenience) ---
 
@@ -790,55 +788,3 @@ def iter_rules(path: str | Path) -> Iterator[AnyRule]:
                     yield rule
             except Exception:  # noqa: BLE001
                 pass
-
-
-# ---------------------------------------------------------------------------
-# CLI demo
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    import json
-    import sys
-
-    path = sys.argv[1] if len(sys.argv) > 1 else "easyprivacy.txt"
-    print(f"Parsing {path} …")
-    fl = parse_file(path)
-
-    print("\n── Metadata ──────────────────────────────")
-    for k, v in fl.metadata.items():
-        print(f"  {k}: {v}")
-
-    print("\n── Summary ───────────────────────────────")
-    for k, v in fl.summary().items():
-        print(f"  {k:20s} {v:>7,}")
-
-    print("\n── Sample: first 3 block rules ───────────")
-    for r in fl.block_rules[:3]:
-        print(f"  pattern={r.pattern!r}")
-        print(f"    domain_anchor={r.is_domain_anchor}  has_sep={r.has_separator}")
-        if r.options.third_party is not None:
-            print(f"    third_party={r.options.third_party}")
-        if r.options.content_types_include:
-            print(f"    types={[ct.value for ct in r.options.content_types_include]}")
-        if r.options.domain_includes or r.options.domain_excludes:
-            print(f"    domain_includes={r.options.domain_includes}")
-            print(f"    domain_excludes={r.options.domain_excludes}")
-
-    print("\n── Sample: first 3 exception rules ───────")
-    for r in fl.exception_rules[:3]:
-        print(f"  pattern={r.pattern!r}  domain={r.options.domain_includes}")
-
-    print("\n── Sample: scriptlet rules ────────────────")
-    for r in fl.scriptlet_rules[:5]:
-        print(f"  {r.scriptlet_name}({', '.join(r.arguments)})  → {r.applies_to}")
-
-    print("\n── Sample: CSP rules ──────────────────────")
-    for r in fl.csp_rules[:3]:
-        print(f"  csp={r.csp_value!r}")
-        print(f"    domains={r.options.domain_includes}")
-
-    if fl.parse_errors:
-        print(f"\n── Parse errors ({len(fl.parse_errors)}) ──────────────────")
-        for lineno, raw, msg in fl.parse_errors[:5]:
-            print(f"  line {lineno}: {msg}")
-            print(f"    {raw[:80]}")
