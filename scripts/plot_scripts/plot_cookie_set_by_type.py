@@ -62,7 +62,9 @@ def plot_set_by_type(data_dir: str, out_dir: str) -> None:
 
     palette = COLORS[: len(TYPE_ORDER)]
 
-    fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=(10, 9), gridspec_kw={"hspace": 0.45})
+    fig, (ax_top, ax_bot) = plt.subplots(
+        2, 1, figsize=(10, 9), gridspec_kw={"hspace": 0.45}
+    )
 
     # ── Top: overall distribution ──────────────────────────────────────────
     bars = ax_top.bar(
@@ -74,7 +76,9 @@ def plot_set_by_type(data_dir: str, out_dir: str) -> None:
                 bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + 0.5,
                 f"{pct:.1f}%\n({count:,})",
-                ha="center", fontsize=9, color=DARK,
+                ha="center",
+                fontsize=9,
+                color=DARK,
             )
     ax_top.set_ylabel("Share of All Cookies (%)")
     ax_top.set_title("Cookie Injection by Request Type")
@@ -82,9 +86,14 @@ def plot_set_by_type(data_dir: str, out_dir: str) -> None:
     ax_top.grid(axis="y", alpha=0.35)
     ax_top.spines[["top", "right"]].set_visible(False)
     ax_top.text(
-        0.99, 0.97,
+        0.99,
+        0.97,
         f"n = {total:,} cookies with network context",
-        transform=ax_top.transAxes, ha="right", va="top", fontsize=8.5, color=MID,
+        transform=ax_top.transAxes,
+        ha="right",
+        va="top",
+        fontsize=8.5,
+        color=MID,
     )
 
     # ── Bottom: tracker share per type (requires is_tracker col) ──────────
@@ -107,9 +116,18 @@ def plot_set_by_type(data_dir: str, out_dir: str) -> None:
                 nont_pcts.append(100 - tp)
 
         x = np.arange(len(TYPE_ORDER))
-        ax_bot.bar(x, tracker_pcts, color=ACCENT, label="Tracker", edgecolor=BG, linewidth=0.8)
-        ax_bot.bar(x, nont_pcts, bottom=tracker_pcts, color=COLORS[2], label="Non-Tracker",
-                   edgecolor=BG, linewidth=0.8)
+        ax_bot.bar(
+            x, tracker_pcts, color=ACCENT, label="Tracker", edgecolor=BG, linewidth=0.8
+        )
+        ax_bot.bar(
+            x,
+            nont_pcts,
+            bottom=tracker_pcts,
+            color=COLORS[2],
+            label="Non-Tracker",
+            edgecolor=BG,
+            linewidth=0.8,
+        )
 
         ax_bot.set_xticks(x)
         ax_bot.set_xticklabels(TYPE_ORDER)

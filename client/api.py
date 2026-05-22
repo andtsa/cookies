@@ -5,7 +5,7 @@ import re
 from typing import List, Optional
 from urllib.parse import urlparse
 
-from playwright._impl._errors import TargetClosedError
+from playwright._impl._errors import Error as PlaywrightError
 
 from client.output import Outfile
 
@@ -85,21 +85,30 @@ class ClientAPI:
             crawl_cfg = CrawlConfig()
 
         # Playwright internally creates fire-and-forget asyncio tasks for CDP
-        # protocol calls (Channel.send). When the browser closes, any tasks
-        # that were in-flight raise TargetClosedError and emit "Task exception
-        # was never retrieved" warnings
+        # protocol calls (Channel.send). These tasks can fail with Playwright
+        # protocol errors (e.g. TargetClosedError when the browser closes, or
+        # "object has been collected to prevent unbounded heap growth" under
+        # memory pressure) and emit "Task exception was never retrieved"
+        # warnings. All are expected, benign noise — suppress them.
         loop = asyncio.get_event_loop()
         _original_handler = loop.get_exception_handler()
 
-        def _suppress_target_closed(loop: asyncio.AbstractEventLoop, context: dict) -> None:
-            if (
-                context.get("message") == "Task exception was never retrieved"
-                and isinstance(context.get("exception"), TargetClosedError)
+        def _suppress_playwright_channel_errors(
+            loop: asyncio.AbstractEventLoop, context: dict
+        ) -> None:
+            if context.get(
+                "message"
+            ) == "Task exception was never retrieved" and isinstance(
+                context.get("exception"), PlaywrightError
             ):
                 return
-            (_original_handler or loop.default_exception_handler)(loop, context)
+            (
+                _original_handler(loop, context)
+                if _original_handler
+                else loop.default_exception_handler(context)
+            )
 
-        loop.set_exception_handler(_suppress_target_closed)
+        loop.set_exception_handler(_suppress_playwright_channel_errors)
 
         urls = websites[: crawl_cfg.limit] if crawl_cfg.limit is not None else websites
         semaphore = asyncio.Semaphore(crawl_cfg.concurrency)
@@ -121,7 +130,9 @@ class ClientAPI:
                 try:
                     await ClientAPI.run_for_page(
                         url=url,
-                        output=Outfile(dir=specific_dir, name=safe_name, target_url=url),
+                        output=Outfile(
+                            dir=specific_dir, name=safe_name, target_url=url
+                        ),
                         cfg=browser_cfg,
                     )
                 except Exception as e:
@@ -159,7 +170,9 @@ class ClientAPI:
                         websites.append(value)
             else:
                 f.seek(0)
-                for row in csv.reader(f):
+                for i, row in enumerate(csv.reader(f)):
+                    if crawl_cfg and i < crawl_cfg.start_index:
+                        continue
                     if len(row) >= 2:
                         value = row[1].strip()
                         if value:

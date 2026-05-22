@@ -68,7 +68,9 @@ class OutputFormat:
             else:
                 num_persistent += 1
                 cookie_type = "persistent"
-                expires_at = datetime.fromtimestamp(expires, tz=timezone.utc).isoformat()
+                expires_at = datetime.fromtimestamp(
+                    expires, tz=timezone.utc
+                ).isoformat()
                 lifetime_days = (expires - now_ts) / 86400
                 if lifetime_days >= 0:
                     lifetime_values.append(lifetime_days)
@@ -107,7 +109,9 @@ class OutputFormat:
                 "md5_value": md5(
                     cookie.get("value", EMPTY_COOKIE).encode()
                 ).hexdigest(),
-                "is_tracker": tracker_detection.to_dict() if tracker_detection else None,
+                "is_tracker": (
+                    tracker_detection.to_dict() if tracker_detection else None
+                ),
             }
 
             cookies_metadata.append(single_cookie_metadata)
@@ -146,7 +150,7 @@ class OutputFormat:
                 {"domain": domain, "count": count}
                 for domain, count in blocked_domains.most_common(100)
             ],
-            "sensitivity": sensitivity_result
+            "sensitivity": sensitivity_result,
         }
 
         if tracker_list is not None:
