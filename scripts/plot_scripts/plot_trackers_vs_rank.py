@@ -40,7 +40,6 @@ from utils import (
     COLORS,
 )
 
-
 RANK_TIERS = [
     (1, 100, "Top 100"),
     (101, 1_000, "101–1k"),
@@ -138,16 +137,26 @@ def plot_trackers_vs_rank(data_dir: str, rank_csv: str, out_dir: str) -> None:
     # ── 1. Scatter ────────────────────────────────────────────────────────
     ax = axes[0]
     ax.scatter(
-        matched["rank"], matched["pct_trackers"],
-        alpha=0.45, s=18, color=ACCENT, edgecolors="none",
+        matched["rank"],
+        matched["pct_trackers"],
+        alpha=0.45,
+        s=18,
+        color=ACCENT,
+        edgecolors="none",
     )
     # Trend line in log-rank space
     log_rank = np.log10(matched["rank"])
     z = np.polyfit(log_rank, matched["pct_trackers"], 1)
     p = np.poly1d(z)
     x_line = np.linspace(log_rank.min(), log_rank.max(), 200)
-    ax.plot(10 ** x_line, p(x_line), color=DARK, linewidth=1.5, linestyle="--",
-            label="trend (log fit)")
+    ax.plot(
+        10**x_line,
+        p(x_line),
+        color=DARK,
+        linewidth=1.5,
+        linestyle="--",
+        label="trend (log fit)",
+    )
     ax.set_xscale("log")
     ax.set_xlabel("Website Rank (log scale)", fontsize=11)
     ax.set_ylabel("% Tracker Cookies", fontsize=11)
@@ -167,14 +176,23 @@ def plot_trackers_vs_rank(data_dir: str, rank_csv: str, out_dir: str) -> None:
             tier_ns.append(len(sub))
 
     x = np.arange(len(tier_labels))
-    bars = ax2.bar(x, tier_means, color=COLORS[:len(tier_labels)],
-                   edgecolor=BG, linewidth=0.8, alpha=0.9, width=0.6)
+    bars = ax2.bar(
+        x,
+        tier_means,
+        color=COLORS[: len(tier_labels)],
+        edgecolor=BG,
+        linewidth=0.8,
+        alpha=0.9,
+        width=0.6,
+    )
     for bar, mean, n in zip(bars, tier_means, tier_ns):
         ax2.text(
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + 0.5,
             f"{mean:.1f}%\n(n={n})",
-            ha="center", fontsize=9, color=DARK,
+            ha="center",
+            fontsize=9,
+            color=DARK,
         )
     ax2.set_xticks(x)
     ax2.set_xticklabels(tier_labels, rotation=15, ha="right")
@@ -192,14 +210,23 @@ def plot_trackers_vs_rank(data_dir: str, rank_csv: str, out_dir: str) -> None:
         if len(sub) > 0:
             tier_has_tracker.append(sub["has_tracker"].mean() * 100)
 
-    bars3 = ax3.bar(x, tier_has_tracker, color=ACCENT2,
-                    edgecolor=BG, linewidth=0.8, alpha=0.9, width=0.6)
+    bars3 = ax3.bar(
+        x,
+        tier_has_tracker,
+        color=ACCENT2,
+        edgecolor=BG,
+        linewidth=0.8,
+        alpha=0.9,
+        width=0.6,
+    )
     for bar, pct, n in zip(bars3, tier_has_tracker, tier_ns):
         ax3.text(
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + 0.5,
             f"{pct:.0f}%\n(n={n})",
-            ha="center", fontsize=9, color=DARK,
+            ha="center",
+            fontsize=9,
+            color=DARK,
         )
     ax3.set_xticks(x)
     ax3.set_xticklabels(tier_labels, rotation=15, ha="right")
@@ -219,8 +246,11 @@ def plot_trackers_vs_rank(data_dir: str, rank_csv: str, out_dir: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="./cookies_data")
-    parser.add_argument("--rank", default="./list_websites_1M.csv",
-                        help="Path to the headerless rank CSV (rank,domain)")
+    parser.add_argument(
+        "--rank",
+        default="./list_websites_1M.csv",
+        help="Path to the headerless rank CSV (rank,domain)",
+    )
     parser.add_argument("--out", default="./plots/trackers")
     args = parser.parse_args()
     plot_trackers_vs_rank(args.data, args.rank, args.out)

@@ -32,6 +32,7 @@ class Client(ABC):
         self._cookie_set_context: dict[tuple, dict] = {}
         self._is_closed: bool = False
         self._url: str = ""
+        self.page_html: str = ""
 
     def _log(self, msg: str) -> None:
         host = urlparse(self._url).netloc or self._url
@@ -80,6 +81,7 @@ class Client(ABC):
             await cast(Browser, self.browser).close()
         if self.playwright:
             await cast(Playwright, self.playwright).stop()
+
     # engine-specific abstract hooks
 
     @abstractmethod
