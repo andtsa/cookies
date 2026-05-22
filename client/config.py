@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from dotenv import load_dotenv
 
-from classifier.sensitive_classifier import SensitiveClassifier
+if TYPE_CHECKING:
+    from classifier.sensitive_classifier import SensitiveClassifier
 
 from .trackers import TrackerList
 from .trackers.matcher import EasyPrivacyMatcher
@@ -56,6 +57,7 @@ class CrawlConfig:
     """settings consumed by process_batch."""
 
     concurrency: int = 1
+    start_index: int = 0
     limit: Optional[int] = None
     overwrite: bool = False
     failed_sites_path: Optional[str] = "failed_sites.txt"

@@ -91,9 +91,8 @@ def plot_cross_browser(data_dir: str, out_dir: str) -> None:
     if has_tracker:
         cookies_df["is_tracker_bool"] = cookies_df["is_tracker"].apply(_to_bool_tracker)
         tracker_stats = (
-            cookies_df.groupby("browser")["is_tracker_bool"]
-            .mean()
-            .reindex(browsers) * 100
+            cookies_df.groupby("browser")["is_tracker_bool"].mean().reindex(browsers)
+            * 100
         )
 
     x = np.arange(len(browsers))
@@ -103,15 +102,19 @@ def plot_cross_browser(data_dir: str, out_dir: str) -> None:
     fig, axes = plt.subplots(1, n_plots, figsize=(4 * n_plots + 1, 6))
 
     def _bar(ax, values, title, ylabel, fmt="{:.1f}"):
-        bars = ax.bar(x, values, color=colors, edgecolor=BG, linewidth=0.8,
-                      width=width, alpha=0.9)
+        bars = ax.bar(
+            x, values, color=colors, edgecolor=BG, linewidth=0.8, width=width, alpha=0.9
+        )
         for bar, val in zip(bars, values):
             if not np.isnan(val):
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     bar.get_height() + max(values) * 0.02,
                     fmt.format(val),
-                    ha="center", va="bottom", fontsize=10, color=DARK,
+                    ha="center",
+                    va="bottom",
+                    fontsize=10,
+                    color=DARK,
                 )
         ax.set_xticks(x)
         ax.set_xticklabels([b.capitalize() for b in browsers], rotation=15, ha="right")
@@ -121,17 +124,38 @@ def plot_cross_browser(data_dir: str, out_dir: str) -> None:
         ax.spines[["top", "right"]].set_visible(False)
         ax.set_ylim(0, max(values) * 1.25 if max(values) > 0 else 1)
 
-    _bar(axes[0], site_stats["avg_total_cookies"].fillna(0).tolist(),
-         "Avg. Cookies per Site", "Cookies")
+    _bar(
+        axes[0],
+        site_stats["avg_total_cookies"].fillna(0).tolist(),
+        "Avg. Cookies per Site",
+        "Cookies",
+    )
 
     # Session vs persistent stacked
     ax_sp = axes[1]
     sess_vals = site_stats["avg_session"].fillna(0).tolist()
     pers_vals = site_stats["avg_persistent"].fillna(0).tolist()
-    ax_sp.bar(x, sess_vals, color=COLORS[5], label="Session", edgecolor=BG, linewidth=0.8,
-              width=width, alpha=0.9)
-    ax_sp.bar(x, pers_vals, bottom=sess_vals, color=COLORS[0], label="Persistent",
-              edgecolor=BG, linewidth=0.8, width=width, alpha=0.9)
+    ax_sp.bar(
+        x,
+        sess_vals,
+        color=COLORS[5],
+        label="Session",
+        edgecolor=BG,
+        linewidth=0.8,
+        width=width,
+        alpha=0.9,
+    )
+    ax_sp.bar(
+        x,
+        pers_vals,
+        bottom=sess_vals,
+        color=COLORS[0],
+        label="Persistent",
+        edgecolor=BG,
+        linewidth=0.8,
+        width=width,
+        alpha=0.9,
+    )
     ax_sp.set_xticks(x)
     ax_sp.set_xticklabels([b.capitalize() for b in browsers], rotation=15, ha="right")
     ax_sp.set_title("Session vs. Persistent Cookies", fontsize=12, pad=10)
@@ -140,12 +164,21 @@ def plot_cross_browser(data_dir: str, out_dir: str) -> None:
     ax_sp.grid(axis="y", alpha=0.35)
     ax_sp.spines[["top", "right"]].set_visible(False)
 
-    _bar(axes[2], site_stats["avg_lifetime"].fillna(0).tolist(),
-         "Avg. Lifetime (Persistent)", "Days")
+    _bar(
+        axes[2],
+        site_stats["avg_lifetime"].fillna(0).tolist(),
+        "Avg. Lifetime (Persistent)",
+        "Days",
+    )
 
     if has_tracker:
-        _bar(axes[3], tracker_stats.fillna(0).tolist(),
-             "Tracker Cookie Share", "% of Cookies", fmt="{:.1f}%")
+        _bar(
+            axes[3],
+            tracker_stats.fillna(0).tolist(),
+            "Tracker Cookie Share",
+            "% of Cookies",
+            fmt="{:.1f}%",
+        )
 
     # Footer: sample size
     for browser, row in site_stats.iterrows():
@@ -161,8 +194,10 @@ def plot_cross_browser(data_dir: str, out_dir: str) -> None:
     print("-" * 50)
     for b in browsers:
         row = site_stats.loc[b]
-        print(f"{b:<14} {int(row['n_sites']):>6} {row['avg_total_cookies']:>12.1f} "
-              f"{row['avg_lifetime']:>13.1f}")
+        print(
+            f"{b:<14} {int(row['n_sites']):>6} {row['avg_total_cookies']:>12.1f} "
+            f"{row['avg_lifetime']:>13.1f}"
+        )
 
 
 if __name__ == "__main__":

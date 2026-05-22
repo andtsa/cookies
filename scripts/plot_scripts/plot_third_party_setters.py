@@ -65,20 +65,26 @@ def plot_setters(data_dir: str, out_dir: str, top_n: int = 25) -> None:
         return
 
     # Sort by number of distinct sites
-    ranked = sorted(setter_sites.items(), key=lambda kv: len(kv[1]), reverse=True)[:top_n]
+    ranked = sorted(setter_sites.items(), key=lambda kv: len(kv[1]), reverse=True)[
+        :top_n
+    ]
     labels = [d for d, _ in ranked]
     counts = [len(s) for _, s in ranked]
 
     norm = plt.Normalize(min(counts), max(counts))
     colors = [
         plt.matplotlib.colors.to_hex(
-            plt.matplotlib.colors.hsv_to_rgb([0.06, 0.35 + 0.6 * norm(c), 0.9 - 0.3 * norm(c)])
+            plt.matplotlib.colors.hsv_to_rgb(
+                [0.06, 0.35 + 0.6 * norm(c), 0.9 - 0.3 * norm(c)]
+            )
         )
         for c in counts
     ]
 
     fig, ax = plt.subplots(figsize=(11, max(7, top_n * 0.42)))
-    bars = ax.barh(labels, counts, color=colors, edgecolor=BG, linewidth=0.6, height=0.72)
+    bars = ax.barh(
+        labels, counts, color=colors, edgecolor=BG, linewidth=0.6, height=0.72
+    )
     ax.invert_yaxis()
 
     for bar, count in zip(bars, counts):
@@ -99,9 +105,13 @@ def plot_setters(data_dir: str, out_dir: str, top_n: int = 25) -> None:
 
     total_sites = len({s for _, sites in ranked for s in sites})
     ax.text(
-        0.99, 0.02,
+        0.99,
+        0.02,
         f"Based on {len(setter_sites):,} unique third-party setters across {total_sites:,} sites",
-        transform=ax.transAxes, ha="right", fontsize=8.5, color=MID,
+        transform=ax.transAxes,
+        ha="right",
+        fontsize=8.5,
+        color=MID,
     )
 
     plt.tight_layout()
