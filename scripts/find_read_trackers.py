@@ -81,7 +81,7 @@ def load_sessions(data_dir: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def print_table(results: list[dict], max_domains_shown: int = 6) -> None:
+def print_table(results: list[dict], max_domains_shown: int = 60) -> None:
     if not results:
         print("No cross-domain cookies found.")
         return
@@ -144,7 +144,7 @@ def main() -> None:
 
     print(f"Loading sessions from: {args.data_dir}")
     sessions = load_sessions(args.data_dir)
-    print(f"  → {len(sessions)} session file(s) loaded.\n")
+    print(f"  -> {len(sessions)} session file(s) loaded.\n")
 
     index = build_cookie_domain_index(sessions)
     print(f"Unique cookie names seen: {len(index)}\n")
