@@ -20,6 +20,7 @@ from utils import (
     apply_theme,
     load_cookie_data,
     lifetime_bucket,
+    save_figure,
     BUCKETS,
     BG,
     DARK,
@@ -112,11 +113,7 @@ def plot_security(data_dir: str, out_dir: str):
     )
 
     plt.tight_layout()
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "plot_security_flags.png")
-    plt.savefig(out_path)
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "plot_security_flags.png")
 
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
-from utils import apply_theme, BG, DARK, ACCENT, ACCENT2, MID, LIGHT
+from utils import apply_theme, save_figure, BG, DARK, ACCENT, ACCENT2, MID, LIGHT
 
 
 def load_tracker_data(data_dir: str) -> pd.DataFrame:
@@ -51,7 +51,7 @@ def load_tracker_data(data_dir: str) -> pd.DataFrame:
         - flagged_by: string indicating source(s)
     """
     rows = []
-    paths = glob.glob(os.path.join(data_dir, "*.json"))
+    paths = sorted(glob.glob(os.path.join(data_dir, "**", "*.json"), recursive=True))
 
     if not paths:
         raise FileNotFoundError(f"No JSON files found in: {data_dir}")
@@ -63,49 +63,58 @@ def load_tracker_data(data_dir: str) -> pd.DataFrame:
         domain = os.path.basename(path).replace(".json", "")
 
         for cookie in data.get("cookies", []):
-            # Extract tracker information from both sources
-            is_tracker_data = cookie.get("is_tracker", {})
+            # Extract tracker information from both sources.
+            # New schema: is_tracker is None (not a tracker) or a dict.
+            # Old schema: is_tracker is False (not a tracker) or a dict.
+            is_tracker_data = cookie.get("is_tracker") or {}
 
-            # Handle both dict and boolean formats
-            if isinstance(is_tracker_data, bool):
-                is_tracker_ep = is_tracker_data
-                is_tracker_ocd = is_tracker_data
-            else:
-                # Dictionary format with different tracker sources
-                tracker_lists = is_tracker_data.get("lists", [])
+            if not is_tracker_data:
+                continue  # not a tracker — skip
 
-                # Check if flagged by EasyPrivacy
-                is_tracker_ep = any(
-                    "easylist" in src.lower() or "easyprivacy" in src.lower()
-                    for src in tracker_lists
-                )
+            tracker_lists = is_tracker_data.get("lists", [])
 
-                # Check if flagged by OpenCookieDatabase
-                is_tracker_ocd = any(
-                    "opencookie" in src.lower() or "ocd" in src.lower()
-                    for src in tracker_lists
-                )
+            # Check if flagged by EasyPrivacy
+            is_tracker_ep = any(
+                "easylist" in src.lower() or "easyprivacy" in src.lower()
+                for src in tracker_lists
+            )
 
-            if is_tracker_ep or is_tracker_ocd:  # Only include flagged cookies
-                flagged_by = []
-                if is_tracker_ep:
-                    flagged_by.append("EasyPrivacy")
-                if is_tracker_ocd:
-                    flagged_by.append("OpenCookieDatabase")
+            # Check if flagged by OpenCookieDatabase
+            is_tracker_ocd = any(
+                "opencookie" in src.lower() or "ocd" in src.lower()
+                for src in tracker_lists
+            )
 
-                rows.append(
-                    {
-                        "domain": domain,
-                        "name": cookie.get("name"),
-                        "is_tracker_ep": is_tracker_ep,
-                        "is_tracker_ocd": is_tracker_ocd,
-                        "is_tracker": is_tracker_ep or is_tracker_ocd,
-                        "flagged_by": ", ".join(flagged_by),
-                        "party_type": cookie.get("party_type", "unknown"),
-                        "session": cookie.get("session", True),
-                        "lifetime_days": cookie.get("lifetime_days", 0),
-                    }
-                )
+            if not (is_tracker_ep or is_tracker_ocd):
+                continue
+
+            flagged_by = []
+            if is_tracker_ep:
+                flagged_by.append("EasyPrivacy")
+            if is_tracker_ocd:
+                flagged_by.append("OpenCookieDatabase")
+
+            # party_type: prefer the field added by process_cookies.py;
+            # fall back to set_by.third_party from the raw schema.
+            set_by = cookie.get("set_by") or {}
+            party_type = cookie.get(
+                "party_type",
+                "third_party" if set_by.get("third_party") else "first_party",
+            )
+
+            rows.append(
+                {
+                    "domain": domain,
+                    "name": cookie.get("name"),
+                    "is_tracker_ep": is_tracker_ep,
+                    "is_tracker_ocd": is_tracker_ocd,
+                    "is_tracker": True,
+                    "flagged_by": ", ".join(flagged_by),
+                    "party_type": party_type,
+                    "session": cookie.get("session", True),
+                    "lifetime_days": cookie.get("lifetime_days", 0),
+                }
+            )
 
     if not rows:
         raise ValueError(
@@ -276,11 +285,7 @@ def plot_venn_diagram(df: pd.DataFrame, out_dir: str) -> None:
         pad=20,
     )
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "venn_tracker_sources.png")
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "venn_tracker_sources.png")
 
 
 def plot_comparison_bars(df: pd.DataFrame, out_dir: str) -> None:
@@ -320,11 +325,7 @@ def plot_comparison_bars(df: pd.DataFrame, out_dir: str) -> None:
     ax.set_title("Tracker Detection Comparison by Source", fontweight="bold", pad=15)
     ax.grid(axis="y", alpha=0.3, linestyle="--")
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "comparison_bars.png")
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "comparison_bars.png")
 
 
 def plot_party_type_comparison(df: pd.DataFrame, out_dir: str) -> None:
@@ -390,11 +391,7 @@ def plot_party_type_comparison(df: pd.DataFrame, out_dir: str) -> None:
                     fontsize=10,
                 )
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "comparison_party_type.png")
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "comparison_party_type.png")
 
 
 def export_detailed_csv(df: pd.DataFrame, out_dir: str) -> None:

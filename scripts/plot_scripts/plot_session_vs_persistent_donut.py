@@ -13,7 +13,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
-from utils import apply_theme, load_cookie_data, BG, DARK, BUCKET_COLORS
+from utils import apply_theme, load_cookie_data, save_figure, BG, DARK, BUCKET_COLORS
 
 
 def plot_donut(data_dir: str, out_dir: str):
@@ -65,13 +65,7 @@ def plot_donut(data_dir: str, out_dir: str):
 
     ax.set_title("Session vs Persistent Cookies", pad=15)
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "plot_session_persistent_donut.png")
-
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "plot_session_persistent_donut.png")
 
 
 if __name__ == "__main__":

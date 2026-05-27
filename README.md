@@ -37,8 +37,8 @@ Each website is visited automatically and cookies are saved as structured JSON.
 
 **1. Create and activate a new conda environment**
 ```bash
-conda create -n cookies python=3.11 -y
-conda activate cookies
+conda create -n cookies38 python=3.8 -y
+conda activate cookies38
 ```
 
 **2. Install Python dependencies**
@@ -67,7 +67,7 @@ python get_all_cookies.py
 Example using Tranco list:
 
 ```bash
-python batch_run.py
+python scripts/get_cookies.py list_websites_1M.csv --headless --tracker-lists
 ```
 
 This processes websites from:

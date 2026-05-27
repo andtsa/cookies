@@ -17,9 +17,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 from utils import (
     apply_theme,
     load_cookie_data,
+    lifetime_bucket,
+    save_figure,
     BUCKETS,
     BUCKET_COLORS,
-    lifetime_bucket,
     BG,
     DARK,
     MID,
@@ -74,14 +75,7 @@ def plot_buckets(data_dir: str, out_dir: str):
     )
 
     plt.tight_layout()
-
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "plot_lifetime_buckets.png")
-
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "plot_lifetime_buckets.png")
 
 
 if __name__ == "__main__":

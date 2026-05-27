@@ -9,64 +9,25 @@ Usage:
 """
 
 import argparse
-import json
 import os
 import sys
-import glob
 
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import numpy as np
-import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
 from utils import (
     apply_theme,
+    load_tracker_cookies,
     lifetime_bucket,
+    save_figure,
     BUCKETS,
     BG,
     DARK,
     MID,
-    LIGHT,
     COLORS,
     ACCENT,
-    ACCENT2,
 )
-
-
-def load_tracker_cookies(data_dir: str) -> pd.DataFrame:
-    rows = []
-    paths = glob.glob(os.path.join(data_dir, "*.json"))
-    if not paths:
-        raise FileNotFoundError(f"No JSON files found in: {data_dir}")
-    for path in paths:
-        with open(path) as f:
-            data = json.load(f)
-        domain = os.path.basename(path).replace(".json", "")
-        for cookie in data.get("cookies", []):
-            if "is_tracker" not in cookie:
-                continue
-            tracker_val = cookie["is_tracker"]
-            is_tracker = (
-                bool(tracker_val)
-                if isinstance(tracker_val, bool)
-                else bool(tracker_val.get("lists"))
-            )
-            rows.append(
-                {
-                    "domain": domain,
-                    "name": cookie.get("name"),
-                    "is_tracker": is_tracker,
-                    "session": cookie.get("session", True),
-                    "lifetime_days": cookie.get("lifetime_days") or 0,
-                }
-            )
-    if not rows:
-        raise ValueError(
-            "No cookies with is_tracker found. "
-            "Re-collect with --tracker-lists to annotate trackers."
-        )
-    return pd.DataFrame(rows)
 
 
 def plot_tracker_by_lifetime(data_dir: str, out_dir: str) -> None:
@@ -151,11 +112,7 @@ def plot_tracker_by_lifetime(data_dir: str, out_dir: str) -> None:
     )
 
     plt.tight_layout()
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "plot_tracker_by_lifetime.png")
-    plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=BG)
-    print(f"Saved → {out_path}")
-    plt.close()
+    save_figure(out_dir, "plot_tracker_by_lifetime.png")
 
 
 if __name__ == "__main__":
