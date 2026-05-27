@@ -129,6 +129,11 @@ class CookieReadInterceptor:
     def __init__(self, visited_domain: str) -> None:
         self.session = InterceptorSession(visited_domain=visited_domain)
         self._lock = asyncio.Lock()
+        self._is_closed: bool = False
+
+    def close(self) -> None:
+        """Signal that the page is closing; discard any future JS callbacks."""
+        self._is_closed = True
 
     async def attach(self, page: Any) -> None:
         """
@@ -144,6 +149,8 @@ class CookieReadInterceptor:
 
     async def _on_cookie_read(self, event: dict[str, Any]) -> None:
         """Called from JS each time document.cookie is read."""
+        if self._is_closed:
+            return
         read = CookieRead(
             visited_domain=self.session.visited_domain,
             frame_url=event.get("frameUrl", ""),

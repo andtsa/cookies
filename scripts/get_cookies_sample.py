@@ -1,21 +1,14 @@
 import asyncio
 import os
-import signal
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from client import trackers
-from client.client_utils import ClientUtils
+from client.api import Browser, ClientAPI
 from client.config import BrowserConfig, CrawlConfig
 
 
-def signal_handler(signum, frame):
-    print("\nReceived Ctrl-C, shutting down...")
-    sys.exit(0)
-
-
 def main():
-    signal.signal(signal.SIGINT, signal_handler)
 
     tracker_list = trackers.TrackerList()
     tracker_list.load(
@@ -25,7 +18,7 @@ def main():
 
     try:
         asyncio.run(
-            ClientUtils.process_batch(
+            ClientAPI.process_batch(
                 websites=[
                     "https://www.nytimes.com",
                     "https://www.bbc.com",
@@ -34,7 +27,26 @@ def main():
                     "https://www.cnn.com",
                     "https://www.washingtonpost.com",
                 ],
-                browser_cfg=BrowserConfig(tracker_list=tracker_list),
+                browser_cfg=BrowserConfig(
+                    tracker_list=tracker_list, browser_type=Browser.WEBKIT
+                ),
+                crawl_cfg=CrawlConfig(concurrency=4),
+            )
+        )
+
+        asyncio.run(
+            ClientAPI.process_batch(
+                websites=[
+                    "https://www.nytimes.com",
+                    "https://www.bbc.com",
+                    "https://www.reddit.com",
+                    "https://www.theguardian.com",
+                    "https://www.cnn.com",
+                    "https://www.washingtonpost.com",
+                ],
+                browser_cfg=BrowserConfig(
+                    tracker_list=tracker_list, browser_type=Browser.CHROMIUM
+                ),
                 crawl_cfg=CrawlConfig(concurrency=4),
             )
         )

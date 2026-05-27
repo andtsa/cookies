@@ -45,18 +45,34 @@ from client.trackers.reads import build_cookie_domain_index, find_cross_domain_c
 
 
 def load_sessions(data_dir: str) -> list[dict]:
+    """Load InterceptorSession dicts from data_dir.
+
+    Supports two layouts:
+    - Old: standalone session JSON files (``{visited_domain, reads}`` at top level)
+    - New: session embedded as ``data["cookie_reads"]`` inside the site JSON
+      (which also contains ``cookies``, ``site_metadata``, etc.)
+
+    Files without cookie_read data are silently skipped.
+    """
     sessions = []
-    pattern = os.path.join(data_dir, "*.json")
-    paths = sorted(glob.glob(pattern))
+    # Search recursively to handle both flat and browser-subdirectory layouts.
+    pattern = os.path.join(data_dir, "**", "*.json")
+    paths = sorted(glob.glob(pattern, recursive=True))
     if not paths:
         print(f"No JSON files found in: {data_dir}", file=sys.stderr)
         sys.exit(1)
     for path in paths:
         try:
             with open(path, encoding="utf-8") as fh:
-                sessions.append(json.load(fh))
+                data = json.load(fh)
         except Exception as exc:
             print(f"  [!] Skipping {path}: {exc}", file=sys.stderr)
+            continue
+        # New schema: cookie_reads is embedded inside the site JSON.
+        # Old schema: the file IS the session dict (has visited_domain at top level).
+        session = data.get("cookie_reads") if "cookie_reads" in data else data
+        if session and session.get("reads"):
+            sessions.append(session)
     return sessions
 
 
@@ -65,7 +81,7 @@ def load_sessions(data_dir: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def print_table(results: list[dict], max_domains_shown: int = 6) -> None:
+def print_table(results: list[dict], max_domains_shown: int = 60) -> None:
     if not results:
         print("No cross-domain cookies found.")
         return
@@ -128,7 +144,7 @@ def main() -> None:
 
     print(f"Loading sessions from: {args.data_dir}")
     sessions = load_sessions(args.data_dir)
-    print(f"  → {len(sessions)} session file(s) loaded.\n")
+    print(f"  -> {len(sessions)} session file(s) loaded.\n")
 
     index = build_cookie_domain_index(sessions)
     print(f"Unique cookie names seen: {len(index)}\n")

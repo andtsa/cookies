@@ -37,8 +37,8 @@ Each website is visited automatically and cookies are saved as structured JSON.
 
 **1. Create and activate a new conda environment**
 ```bash
-conda create -n cookies python=3.11 -y
-conda activate cookies
+conda create -n cookies38 python=3.8 -y
+conda activate cookies38
 ```
 
 **2. Install Python dependencies**
@@ -46,9 +46,9 @@ conda activate cookies
 pip install -r requirements.txt
 ```
 
-**3. Install Playwright's Chromium browser**
+**3. Install Playwright browsers**
 ```bash
-playwright install chromium
+python -m playwright install chromium firefox webkit
 ```
 ---
 

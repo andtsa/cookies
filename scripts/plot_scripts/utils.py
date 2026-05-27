@@ -58,44 +58,62 @@ def apply_theme():
 
 
 def _iter_cookie_files(data_dir: str):
-    """Yield (domain, data) for every JSON file in data_dir."""
-    paths = glob.glob(os.path.join(data_dir, "*.json"))
+    """Yield (domain, browser, data) for every JSON file in data_dir.
+
+    Searches recursively so both the old flat layout (data_dir/*.json) and the
+    new browser-subdirectory layout (data_dir/{browser}/*.json) are covered.
+    The ``browser`` value is the intermediate directory name (e.g. "chromium",
+    "webkit"); it is "unknown" for files sitting directly in data_dir.
+    """
+    paths = sorted(glob.glob(os.path.join(data_dir, "**", "*.json"), recursive=True))
     if not paths:
         raise FileNotFoundError(f"No JSON files found in: {data_dir}")
     for path in paths:
         with open(path) as f:
             data = json.load(f)
-        yield os.path.basename(path).replace(".json", ""), data
+        rel = os.path.relpath(path, data_dir)
+        parts = rel.split(os.sep)
+        browser = parts[0] if len(parts) > 1 else "unknown"
+        domain = os.path.basename(path).replace(".json", "")
+        yield domain, browser, data
 
 
 def load_cookie_data(data_dir: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Returns:
-        sites_df  – one row per site  (site_metadata fields + domain)
-        cookies_df – one row per cookie (all cookie fields + domain)
+        sites_df  – one row per site  (site_metadata fields + domain + browser)
+        cookies_df – one row per cookie (all cookie fields + domain + browser +
+                     set_by_third_party, set_by_type, set_by_ep_matched)
     """
     site_rows = []
     cookie_rows = []
 
-    for domain, data in _iter_cookie_files(data_dir):
+    for domain, browser, data in _iter_cookie_files(data_dir):
         meta = data.get("site_metadata", {})
 
         site_rows.append(
             {
                 "domain": domain,
+                "browser": browser,
+                "target_url": data.get("target_url", ""),
                 "total_cookies": meta.get("total_cookies", 0),
                 "num_session": meta.get("num_session", 0),
                 "num_persistent": meta.get("num_persistent", 0),
                 "avg_lifetime_days": meta.get("avg_lifetime_days", 0),
                 "min_lifetime_days": meta.get("min_lifetime_days", 0),
                 "max_lifetime_days": meta.get("max_lifetime_days", 0),
+                "num_easyprivacy_requests": meta.get("num_easyprivacy_requests", 0),
+                "pct_easyprivacy_requests": meta.get("pct_easyprivacy_requests", 0.0),
             }
         )
 
         for cookie in data.get("cookies", []):
+            set_by = cookie.get("set_by") or {}
+            ep = set_by.get("easyprivacy") or {}
             cookie_rows.append(
                 {
                     "domain": domain,
+                    "browser": browser,
                     "name": cookie.get("name"),
                     "session": cookie.get("session", True),
                     "cookie_type": cookie.get("cookie_type", "session"),
@@ -103,6 +121,11 @@ def load_cookie_data(data_dir: str) -> tuple[pd.DataFrame, pd.DataFrame]:
                     "httpOnly": cookie.get("httpOnly", False),
                     "sameSite": cookie.get("sameSite"),
                     "lifetime_days": cookie.get("lifetime_days", 0),
+                    "set_by_url": set_by.get("url"),
+                    "set_by_type": set_by.get("type"),
+                    "set_by_initiator": set_by.get("initiator"),
+                    "set_by_third_party": set_by.get("third_party"),
+                    "set_by_ep_matched": ep.get("matched", False),
                 }
             )
 
@@ -115,29 +138,36 @@ def load_tracker_cookies(data_dir: str) -> pd.DataFrame:
     """
     Load cookies that have is_tracker annotations.
     Skips files where is_tracker is absent (collected without --tracker-lists).
+
+    Handles both the old schema (``False`` for non-trackers) and the new schema
+    (``null`` / ``None`` for non-trackers).  In both cases the resulting
+    ``is_tracker`` column is a plain bool.
     """
     rows = []
     skipped = 0
 
-    for domain, data in _iter_cookie_files(data_dir):
+    for domain, browser, data in _iter_cookie_files(data_dir):
         for cookie in data.get("cookies", []):
             if "is_tracker" not in cookie:
                 skipped += 1
                 continue
             tracker_val = cookie["is_tracker"]
-            is_tracker = (
-                bool(tracker_val)
-                if isinstance(tracker_val, bool)
-                else bool(tracker_val.get("lists"))
-            )
+            # new schema: None means not a tracker; old schema: False means same
+            if tracker_val is None or tracker_val is False:
+                is_tracker = False
+            else:
+                is_tracker = bool(tracker_val.get("lists"))
+            set_by = cookie.get("set_by") or {}
             rows.append(
                 {
                     "domain": domain,
+                    "browser": browser,
                     "name": cookie.get("name"),
                     "is_tracker": is_tracker,
                     "cookie_type": cookie.get("cookie_type", "session"),
                     "session": cookie.get("session", True),
                     "lifetime_days": cookie.get("lifetime_days") or 0,
+                    "set_by_third_party": set_by.get("third_party"),
                 }
             )
 
