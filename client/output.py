@@ -106,9 +106,7 @@ class OutputFormat:
                     "third_party": network_context.get("is_third_party_set"),
                     "easyprivacy": ep_for_cookie or {"matched": False},
                 },
-                "md5_value": md5(
-                    cookie.get("value", EMPTY_COOKIE).encode()
-                ).hexdigest(),
+                "value": cookie.get("value", EMPTY_COOKIE),
                 "is_tracker": (
                     tracker_detection.to_dict() if tracker_detection else None
                 ),
