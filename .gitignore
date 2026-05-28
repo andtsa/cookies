@@ -2,8 +2,17 @@ cookies_data/
 cookies_data_processed/
 data/
 __pycache__/
+**/__pycache__/
 .DS_Store
 .idea/
 .vscode/
 .zed/
 *.todo
+*.pyc
+list_websites_*.csv
+.venv/
+.tracker_cache/
+plots/
+.tracker_cache.zip
+.env
+failed_sites.txt

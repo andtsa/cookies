@@ -1,137 +1,139 @@
-import asyncio
-import json
-import os
-from typing import Callable, Dict, Any, Optional
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from typing import Optional
+
+import tldextract
+from playwright.async_api import async_playwright
+
 from .client import Client
+from .config import BrowserConfig
+from .output import Outfile, OutputFormat
+from .util import _parse_set_cookie_name
 
 
 class ChromiumClient(Client):
     """
     Concrete implementation of Client interface using Chromium via Playwright.
-    
-    Uses Chrome DevTools Protocol (CDP) for advanced automation features
-    like cookie management and network monitoring.
     """
-    
-    def __init__(self):
-        self.playwright = None
-        self.browser: Browser = None
-        self.context: BrowserContext = None
-        self.page: Page = None
-        self.client = None
-    
-    async def visit_page(
-        self, 
-        url: str, 
-        behavior: Callable, 
-        on_close: Callable, 
-        params: Dict[str, Any], 
-        output_args: Dict[str, Any],
-        timeout_ms: Optional[int] = 10000,
-        headless: Optional[bool] = False
-    ) -> None:
-        """
-        Orchestrate the complete page visit workflow.
-        
-        Executes: setup → navigate → behavior → on_close sequence
-        """
-        try:
-            await self._setup(headless=headless)
-            await self._navigate_to_page(url, timeout_ms=timeout_ms)
-            await behavior(self, params)
-            await on_close(self, output_args)
-        except Exception as e:
-            print(f"Error during page visit: {e}")
-            await self._on_close_empty()
-            raise
-    
-    async def _setup(self, headless: Optional[bool] = False) -> None:
-        """
-        Initialize Chromium browser with CDP session.
-        
-        - Launches Chromium (headless=False for visibility)
-        - Creates browser context and page
-        - Establishes CDP session for advanced control
-        - Enables Page and Network domains
-        - Clears existing cookies
-        """
+
+    def __init__(
+        self,
+        cfg: BrowserConfig,
+        channel: Optional[str] = None,
+        executable_path: Optional[str] = None,
+    ):
+        super().__init__(cfg)
+        self.client = None  # CDP session
+        self._request_context: dict[str, dict] = {}
+        self.channel = channel
+        self.executable_path = executable_path
+
+    async def _setup(self, url: str) -> None:
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=headless)
+        self.browser = await self.playwright.chromium.launch(
+            headless=self.cfg.headless,
+            channel=self.channel,
+            executable_path=self.executable_path,
+        )
         self.context = await self.browser.new_context()
         self.page = await self.context.new_page()
         self.client = await self.context.new_cdp_session(self.page)
-        
-        # Enable required CDP domains
-        await self.client.send('Page.enable')
-        await self.client.send('Network.enable')
-        await self.client.send('Network.clearBrowserCookies')
 
-        print("Browser setup complete.")
-    
-    async def _navigate_to_page(self, url: str, timeout_ms: Optional[int] = 10000) -> None:
-        """
-        Navigate to the target URL using CDP.
-        
-        Args:
-            url: The target URL to navigate to
-            timeout_ms: Timeout in milliseconds for page load
-        """
-        print(f"Navigating to {url}...")
-        await self.page.goto(url, wait_until='load', timeout=timeout_ms)
-    
-    async def _behavior_non_interactive(self, milliseconds: int) -> None:
-        """
-        Wait passively for the specified duration.
-        
-        Args:
-            milliseconds: Duration to wait in milliseconds
-        """
-        seconds = milliseconds / 1000.0
-        print(f"Waiting for {seconds} seconds to let trackers load...")
-        await asyncio.sleep(seconds)
-    
-    async def _on_close_get_cookies_snapshot(
-        self, 
-        output_dir: str, 
-        output_name: str, 
-        params: Dict[str, Any]
-    ) -> None:
-        """
-        Capture all cookies and save to JSON file with metadata.
-        
-        Args:
-            output_dir: Directory to save the output file
-            output_name: Name of the output file
-            params: Additional metadata to include in the output JSON
-        """
-        print('Taking cookie snapshot...')
-        response = await self.client.send('Network.getAllCookies')
-        cookies = response.get('cookies', [])
-        
-        print(f"Found {len(cookies)} cookies.")
-        
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-            output_path = os.path.join(output_dir, output_name)
-        else:
-            output_path = output_name
-        
-        output_data = {**params, 'cookies': cookies}       
-        print(f"Writing data to {output_path}...")
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, indent=4)
-        
-        print("Scrape complete!")
-        
-        await self.browser.close()
-        await self.playwright.stop()
-    
-    async def _on_close_empty(self) -> None:
-        """
-        Default cleanup: close browser without saving data.
-        """
-        if self.browser:
-            await self.browser.close()
-        if self.playwright:
-            await self.playwright.stop()
+        await self.client.send("Page.enable")
+        await self.client.send("Network.enable")
+        await self.client.send("Network.clearBrowserCookies")
+
+        self.client.on("Network.requestWillBeSent", self._on_request_sent)
+        self.client.on("Network.responseReceivedExtraInfo", self._on_response_extra)
+
+        await self._attach_cookie_read_interceptor(url)
+
+    async def _navigate_to_page(self, url: str) -> None:
+        assert self.page is not None, "Page not initialized"
+        await self.page.goto(url, wait_until="load", timeout=self.cfg.timeout_ms)
+
+    async def _on_close_get_cookies_snapshot(self, output: Outfile) -> None:
+        assert self.context is not None, "Context not initialized"
+        assert self.client is not None and self.browser is not None, "Not initialized"
+
+        self.page_html = await self.page.content()
+        response = await self.client.send("Network.getAllCookies")
+        cookies = response.get("cookies", [])
+
+        sensitivity_result = (
+            self.cfg.classifier.classify_html(self.page_html)
+            if self.cfg.classifier
+            else None
+        )
+
+        OutputFormat.process_and_save(
+            cookies,
+            self._cookie_set_context,
+            self._request_log,
+            output,
+            self.cfg.tracker_list,
+            self._cookie_read_interceptor,
+            sensitivity_result,
+        )
+
+        self._log(f"{len(cookies)} cookies -> {output.path}")
+        await self._teardown()
+
+    # CDP event handlers
+
+    async def _on_request_sent(self, event: dict) -> None:
+        rid = event["requestId"]
+        request_url = event["request"]["url"]
+        document_url = event.get("documentURL", "")
+        cdp_type = event.get("type", "")
+
+        self._request_context[rid] = {
+            "url": request_url,
+            "document_url": document_url,
+            "type": cdp_type,
+            "initiator": (event.get("initiator") or {}).get("url", ""),
+        }
+
+        easyprivacy_match = {"matched": False}
+        if self.cfg.matcher and request_url and document_url:
+            result = self.cfg.matcher.match(request_url, document_url, cdp_type)
+            easyprivacy_match = result.to_dict()
+
+        self._request_log.append(
+            {
+                "url": request_url,
+                "type": cdp_type,
+                "easyprivacy": easyprivacy_match,
+            }
+        )
+
+    async def _on_response_extra(self, event: dict) -> None:
+        rid = event["requestId"]
+        headers = event.get("headers", {})
+
+        set_cookie = next(
+            (v for k, v in headers.items() if k.lower() == "set-cookie"), None
+        )
+        if not set_cookie:
+            return
+
+        ctx = self._request_context.get(rid)
+        if not ctx or not ctx["url"] or not ctx["document_url"]:
+            return
+
+        request_domain = tldextract.extract(ctx["url"]).registered_domain
+        page_domain = tldextract.extract(ctx["document_url"]).registered_domain
+
+        if not request_domain or not page_domain:
+            return
+
+        # CDP joins multiple Set-Cookie values with \n
+        for raw_cookie in set_cookie.split("\n"):
+            name = _parse_set_cookie_name(raw_cookie)
+            if not name:
+                continue
+            key = (name, request_domain)
+            self._cookie_set_context[key] = {
+                "set_by_request_url": ctx["url"],
+                "set_by_request_type": ctx["type"],
+                "set_by_initiator": ctx["initiator"],
+                "is_third_party_set": request_domain != page_domain,
+            }

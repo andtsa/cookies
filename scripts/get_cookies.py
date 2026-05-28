@@ -1,75 +1,228 @@
 import argparse
 import asyncio
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from client.client_utils import ClientUtils, Browser
+import sys
+import pandas as pd
+import time
+from datetime import datetime
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from classifier.sensitive_classifier import SensitiveClassifier
+from client.api import Browser, ClientAPI
+from client.config import BrowserConfig, CrawlConfig
+from client.trackers import Detections, TrackerList
+from client.trackers.matcher import EasyPrivacyMatcher
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Collect cookies from a list of websites provided via CSV.'
+        description="Collect cookies from a list of websites provided via CSV."
     )
     parser.add_argument(
-        'source_file_path',
-        help='Path to the CSV file containing URLs to process.'
+        "--input",
+        "-i",
+        default="list_websites_1M.csv",
+        help="Path to the CSV file containing URLs to process.",
     )
     parser.add_argument(
-        '--output-dir',
-        default='cookies_data',
-        help='Directory to write output JSON files to (default: cookies_data).'
+        "--output-dir",
+        default="cookies_data",
+        help="Directory to write output JSON files to (default: cookies_data).",
     )
     parser.add_argument(
-        '--browser',
+        "--browsers",
+        nargs="+",
         choices=[b.value for b in Browser],
-        default=Browser.CHROMIUM.value,
-        help='Browser to use for visiting pages (default: chromium).'
+        default=[Browser.CHROMIUM.value],
+        metavar="BROWSER",
+        help=(
+            "One or more browsers to use. Each site is visited once per browser. "
+            f"Choices: {', '.join(b.value for b in Browser)}. "
+            "Default: chromium. Example: --browsers chromium webkit firefox"
+        ),
     )
     parser.add_argument(
-        '--timeout-ms',
+        "--timeout-ms",
         type=int,
         default=10000,
-        help='Page load timeout in milliseconds (default: 10000).'
+        help="Page load timeout in milliseconds (default: 10000).",
     )
     parser.add_argument(
-        '--wait-time-ms',
+        "--wait-time-ms",
         type=int,
         default=5000,
-        help='Time to wait on each page after load in milliseconds (default: 5000).'
+        help="Time to wait on each page after load in milliseconds (default: 5000).",
     )
     parser.add_argument(
-        '--headless',
+        "--headless",
         type=bool,
         default=True,
-        help='Whether to run the browser in headless mode (default: True).'
+        help="Whether to run the browser in headless mode (default: True).",
     )
     parser.add_argument(
-        '--limit',
+        "--limit",
+        "-l",
         type=int,
         default=None,
-        help='Maximum number of URLs to process.'
+        help="Maximum number of URLs to process.",
     )
     parser.add_argument(
-        '--concurrency',
+        "--concurrency",
+        "-c",
         type=int,
         default=1,
-        help='Number of websites to process simultaneously (default: 1).'
+        help="Number of websites to process simultaneously (default: 1).",
+    )
+    parser.add_argument(
+        "--overwrite",
+        "-O",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Overwrite existing output files (default: skip already-collected sites).",
+    )
+    parser.add_argument(
+        "--failed-sites",
+        metavar="FILE",
+        default=None,
+        help="Append failed domain names to this file (default: disabled).",
+    )
+    parser.add_argument(
+        "--sleep-between-ms",
+        type=int,
+        default=0,
+        metavar="MS",
+        help="Milliseconds to sleep between page visits (default: 0).",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=20,
+        help="Number of sites to process per browser per round (default: 20)",
+    )
+    parser.add_argument(
+        "--skip-first",
+        type=int,
+        default=0,
+        help="How many rows to skip from the start of the input csv",
+    )
+
+    tracker_group = parser.add_argument_group(
+        "tracker annotation", "Annotate each cookie with is_tracker using filter lists."
+    )
+    tracker_group.add_argument(
+        "--tracker-lists",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable tracker annotation. Downloads default lists to annotate each cookie with is_tracker.",
+    )
+    tracker_group.add_argument(
+        "--tracker-cache-dir",
+        default=".tracker_cache",
+        metavar="DIR",
+        help="Directory to cache downloaded filter lists (default: .tracker_cache)",
+    )
+    parser.add_argument(
+        "--cookie-reads",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Intercept and record all JS document.cookie reads per page.",
+    )
+    parser.add_argument(
+        "--classifier",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Use a classifier to determine whether a website is sensitive or not",
     )
 
     args = parser.parse_args()
-    browser = Browser(args.browser)
+    browsers = [Browser(b) for b in args.browsers]
 
-    asyncio.run(ClientUtils.process_batch_from_csv(
-        source_file_path=args.source_file_path,
-        output_dir=args.output_dir,
-        browser=browser,
-        timeout_ms=args.timeout_ms,
-        headless=args.headless,
+    concurrency = args.concurrency or 1
+    cores = os.cpu_count()
+    if cores and concurrency > cores:
+        print(
+            f"Concurrency ({concurrency}) exceeds available cores ({cores}), setting to {cores - 1} to ensure stability"
+        )
+        # if laptop is left overnight and it enters power saving mode,
+        # the switching between the crawling task and the OS might take so long
+        # that the laptop's hardware watchdog reboots it (happened to me)
+        concurrency = cores - 1
+
+    tracker_list = None
+    matcher = None
+    classifier = None
+    if args.tracker_lists:
+        tracker_list = TrackerList()
+        tracker_list.load(
+            trackers={Detections.OpenCookieDB, Detections.EasyPrivacy},
+            cache_dir=args.tracker_cache_dir,
+        )
+        matcher = EasyPrivacyMatcher(tracker_list._easyprivacy)
+    if args.classifier:
+        classifier = SensitiveClassifier()
+
+    crawl_cfg = CrawlConfig(
+        concurrency=concurrency,
         limit=args.limit,
-        wait_time_ms=args.wait_time_ms,
-        concurrency=args.concurrency
-    ))
+        overwrite=args.overwrite,
+        failed_sites_path=args.failed_sites,
+        sleep_between_ms=args.sleep_between_ms,
+    )
+
+    batch_size = args.batch_size or 20
+    start_index = args.skip_first or 0
+
+    async def run_all():
+        processed_sites = start_index
+        for df in pd.read_csv(
+            args.input,
+            header=0,
+            names=["rank", "url"],
+            skiprows=start_index,
+            chunksize=batch_size,
+        ):
+            batch_start_t = time.time()
+            print(f"\n{'='*60}")
+            print(
+                f"  [Crawler] Processing sites {processed_sites + 1} to {processed_sites + len(df)}"
+            )
+            print(
+                f"            -> from `{df["url"].tolist()[0]}` until `{df["url"].tolist()[-1]}`"
+            )
+            print(f"            -> start time {datetime.now().strftime("%H:%M")}")
+            print(f"{'='*60}\n")
+            for browser in browsers:
+                if len(browsers) > 1:
+                    print(f"    [Browser={browser.value}]")
+
+                browser_cfg = BrowserConfig(
+                    headless=args.headless,
+                    timeout_ms=args.timeout_ms,
+                    wait_time_ms=args.wait_time_ms,
+                    tracker_list=tracker_list,
+                    matcher=matcher,
+                    intercept_cookie_reads=args.cookie_reads,
+                    browser_type=browser,
+                    classifier=classifier,
+                )
+
+                await ClientAPI.process_batch(
+                    websites=df["url"].tolist(),
+                    output_dir=args.output_dir,
+                    browser_cfg=browser_cfg,
+                    crawl_cfg=crawl_cfg,
+                )
+            print(f"\n{'='*60}")
+            print(
+                f"  [Crawler] finished batch {processed_sites // batch_size} in {time.time() - batch_start_t}s"
+            )
+            processed_sites += len(df)
+
+    asyncio.run(run_all())
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("Interrupted by user")
