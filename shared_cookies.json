@@ -1,0 +1,75 @@
+[
+  {
+    "key_type": "value",
+    "label": "<high-entropy value>",
+    "md5_value": "23eeeebcc8356842d0132ae6bf433522",
+    "site_count": 3,
+    "distinct_first_parties": 0,
+    "has_third_party": true,
+    "domains": [
+      ".login.microsoftonline.com"
+    ],
+    "any_tracker": false,
+    "sites": [
+      {
+        "site": "https://cloud.microsoft",
+        "source_file": "cloud_microsoft.json",
+        "domain": ".login.microsoftonline.com",
+        "cookie_type": "session",
+        "party_type": "third_party",
+        "name": "AADSSO",
+        "is_tracker": null
+      },
+      {
+        "site": "https://live.com",
+        "source_file": "live_com.json",
+        "domain": ".login.microsoftonline.com",
+        "cookie_type": "session",
+        "party_type": "third_party",
+        "name": "AADSSO",
+        "is_tracker": null
+      },
+      {
+        "site": "https://office.com",
+        "source_file": "office_com.json",
+        "domain": ".login.microsoftonline.com",
+        "cookie_type": "session",
+        "party_type": "third_party",
+        "name": "AADSSO",
+        "is_tracker": null
+      }
+    ]
+  },
+  {
+    "key_type": "value",
+    "label": "<high-entropy value>",
+    "md5_value": "bbc99d225af88bf946ab6f32573285a8",
+    "site_count": 2,
+    "distinct_first_parties": 1,
+    "has_third_party": true,
+    "domains": [
+      ".youtube.com"
+    ],
+    "any_tracker": false,
+    "sites": [
+      {
+        "site": "https://youtu.be",
+        "source_file": "youtu_be.json",
+        "domain": ".youtube.com",
+        "cookie_type": "persistent",
+        "party_type": "third_party",
+        "name": "PREF",
+        "is_tracker": null
+      },
+      {
+        "site": "https://youtube.com",
+        "source_file": "youtube_com.json",
+        "domain": ".youtube.com",
+        "cookie_type": "persistent",
+        "party_type": "first_party",
+        "name": "PREF",
+        "is_tracker": null
+      }
+    ]
+  }
+]

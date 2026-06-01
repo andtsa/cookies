@@ -168,6 +168,14 @@ class OutputFormat:
         if cookie_read_interceptor is not None:
             output_data["cookie_reads"] = cookie_read_interceptor.session.to_dict()
 
+        # Persist the raw request log (full URLs with query strings) so that
+        # post-hoc cookie-syncing detection (scripts/find_cookie_syncing.py) can
+        # search for cookie values shared cross-domain via request parameters.
+        # Only populated for Chromium-family browsers (CDP); other engines pass
+        # an empty list and the field is omitted.
+        if request_log:
+            output_data["requests"] = request_log
+
         if output.dir:
             os.makedirs(output.dir, exist_ok=True)
             output_path = os.path.join(output.dir, output.name)

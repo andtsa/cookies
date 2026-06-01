@@ -94,6 +94,17 @@ It does **not**:
 
 The project is intended solely for privacy research and educational purposes.
 
+### Note on stored request URLs
+
+For Chromium-family crawls, the full URLs of outgoing requests (including query
+strings) are retained in each site's JSON under a `requests` field. This is
+required to detect **cookie syncing** — identifiers passed between trackers via
+request parameters (`scripts/find_cookie_syncing.py`). These URLs are observed
+from automated, un-authenticated visits and may contain identifier-like
+parameter values; they are stored raw so syncing can be detected accurately. If
+you share a collected dataset, treat these URLs as you would any observational
+web-measurement data.
+
 ---
 
 ## Authors
