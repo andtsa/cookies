@@ -187,7 +187,8 @@ def save_figure(out_dir: str, *filenames: str, facecolor: str = BG) -> None:
     for filename in filenames:
         out_path = os.path.join(out_dir, filename)
         plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=facecolor)
-        print(f"Saved → {out_path}")
+        # Plain ASCII arrow: a Windows cp1252 console cannot encode "→".
+        print(f"Saved -> {out_path}")
     plt.close()
 
 

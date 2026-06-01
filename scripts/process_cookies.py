@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -9,6 +10,13 @@ import tldextract
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from client.trackers import Detections, TrackerList
+from client.trackers.entropy import entropy_metrics
+
+# total_bits cutoff used ONLY to count "high entropy" values in the
+# site_metadata summary. It is not stored as a per-cookie verdict — downstream
+# analysis is free to choose its own threshold. ~36 bits ≈ a 12-char value with
+# a full distribution, comfortably above structured codes like "en_US".
+HIGH_ENTROPY_BITS = 36.0
 
 
 def get_base_domain(hostname):
@@ -89,6 +97,8 @@ def process_cookies(input_dir, output_dir):
             processed_cookies = []
             site_metadata = data.get("site_metadata", {})
             num_trackers = 0
+            entropy_values = []
+            num_high_entropy = 0
 
             for cookie in cookies:
                 cookie_domain = cookie.get("domain", "")
@@ -107,7 +117,19 @@ def process_cookies(input_dir, output_dir):
                 if tracker_detection:
                     num_trackers += 1
 
-                processed_cookie = {**cookie, "party_type": party_type}
+                value = cookie.get("value", "")
+                md5_value = hashlib.md5(value.encode()).hexdigest()
+                metrics = entropy_metrics(value)
+                entropy_values.append(metrics["entropy"])
+                if metrics["total_bits"] >= HIGH_ENTROPY_BITS:
+                    num_high_entropy += 1
+
+                processed_cookie = {
+                    **cookie,
+                    "party_type": party_type,
+                    "md5_value": md5_value,
+                    **metrics,
+                }
                 if tracker_detection is not None:
                     processed_cookie["is_tracker"] = tracker_detection.to_dict()
                 else:
@@ -121,6 +143,15 @@ def process_cookies(input_dir, output_dir):
                 if processed_cookies
                 else 0.0
             )
+            site_metadata["avg_entropy"] = (
+                round(sum(entropy_values) / len(entropy_values), 4)
+                if entropy_values
+                else 0.0
+            )
+            site_metadata["max_entropy"] = (
+                round(max(entropy_values), 4) if entropy_values else 0.0
+            )
+            site_metadata["num_high_entropy"] = num_high_entropy
 
             output_data = {
                 "target_url": target_url,

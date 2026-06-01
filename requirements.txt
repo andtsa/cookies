@@ -13,6 +13,7 @@ joblib==1.5.3
 kiwisolver==1.5.0
 matplotlib==3.10.9
 matplotlib-venn==1.1.2
+networkx==3.4.2
 numpy==2.4.4
 packaging==26.2
 pandas==3.0.2
@@ -22,6 +23,7 @@ pyee==13.0.1
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
+rapidfuzz==3.10.1
 requests==2.34.1
 requests-file==3.0.1
 scikit-learn==1.8.0
