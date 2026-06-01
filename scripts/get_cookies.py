@@ -214,10 +214,10 @@ def main():
                 print(
                     f"  [Crawler] Processing sites {processed_sites + 1} to {processed_sites + len(df)}"
                 )
-                print(
-                    f"            -> from `{df['url'].tolist()[0]}` until `{df['url'].tolist()[-1]}`"
-                )
-                print(f"            -> start time {datetime.now().strftime('%H:%M')}")
+                urls = df["url"].tolist()
+                start_time = datetime.now().strftime("%H:%M")
+                print(f"            -> from `{urls[0]}` until `{urls[-1]}`")
+                print(f"            -> start time {start_time}")
                 print(f"{'='*60}\n")
                 for browser in browsers:
                     if len(browsers) > 1:
