@@ -12,11 +12,6 @@ from client.api import Browser, ClientAPI
 from client.config import BrowserConfig, CrawlConfig
 from client.trackers import Detections, TrackerList
 from client.trackers.matcher import EasyPrivacyMatcher
-import csv
-import os
-import traceback
-from datetime import datetime
-from typing import Dict, Any, Optional, List
 
 
 def main():
