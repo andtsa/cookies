@@ -138,10 +138,11 @@ class ClientAPI:
                 except Exception as e:
                     print(f"[{netloc}] error: {e}")
                     if crawl_cfg.failed_sites_path:
-                        with open(
-                            crawl_cfg.failed_sites_path, "a", encoding="utf-8"
-                        ) as f:
-                            f.write(f"{url}\n")
+                        _write_failed_site(
+                            path=crawl_cfg.failed_sites_path,
+                            url=url,
+                            error=e,
+                        )
 
                 if crawl_cfg.sleep_between_ms > 0:
                     await asyncio.sleep(crawl_cfg.sleep_between_ms / 1000)
@@ -184,3 +185,26 @@ class ClientAPI:
             browser_cfg=browser_cfg,
             crawl_cfg=crawl_cfg,
         )
+
+
+
+def _write_failed_site(path: str, url: str, error: Exception) -> None:
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            url,
+            get_error_reason(error),
+        ])
+
+
+def get_error_reason(error: Exception) -> str:
+    msg = str(error)
+
+    match = re.search(r"net::(ERR_[A-Z_]+)", msg)
+    if match:
+        return match.group(1)
+
+    if "Timeout" in msg:
+        return "TIMEOUT"
+
+    return type(error).__name__
