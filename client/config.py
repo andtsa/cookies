@@ -60,5 +60,5 @@ class CrawlConfig:
     start_index: int = 0
     limit: Optional[int] = None
     overwrite: bool = False
-    failed_sites_path: Optional[str] = "failed_sites.txt"
+    failed_sites_path: Optional[str] = "failed_sites.csv"
     sleep_between_ms: int = 0
