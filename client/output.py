@@ -1,13 +1,11 @@
 import json
 import os
-from collections import Counter
 from datetime import datetime, timezone
-from hashlib import md5
 from typing import Any, Dict, List, Optional
 
 import tldextract
 
-from client.trackers.reads import CookieReadInterceptor
+from client.trackers.js import CookieReadInterceptor
 
 from .trackers import TrackerList
 
@@ -44,11 +42,30 @@ class OutputFormat:
         now = datetime.now(timezone.utc)
         now_ts = now.timestamp()
 
-        cookies_metadata = []
+        cookies_out = []
         num_session = 0
         num_persistent = 0
         num_trackers = 0
-        lifetime_values = []
+
+        # map name to first js write event for attribution
+        js_writes_by_name: dict[str, Any] = {}
+        if cookie_read_interceptor is not None:
+            for w in cookie_read_interceptor.session.writes:
+                name = w.parsed_name()
+                if name and name not in js_writes_by_name:
+                    js_writes_by_name[name] = {
+                        "frame_url": w.frame_url,
+                        "raw_value": w.raw_value,
+                        "stack": w.stack,
+                        "ts": w.ts,
+                    }
+
+        # map url to request log entry for EasyPrivacy lookup
+        request_by_url: dict[str, Any] = {}
+        for r in request_log:
+            url = r.get("url", "")
+            if url and url not in request_by_url:
+                request_by_url[url] = r
 
         for cookie in cookies:
             is_session = cookie.get("session", False)
@@ -72,8 +89,6 @@ class OutputFormat:
                     expires, tz=timezone.utc
                 ).isoformat()
                 lifetime_days = (expires - now_ts) / 86400
-                if lifetime_days >= 0:
-                    lifetime_values.append(lifetime_days)
 
             tracker_detection = None
             if tracker_list is not None:
@@ -81,92 +96,120 @@ class OutputFormat:
                 if tracker_detection:
                     num_trackers += 1
 
-            network_context = cookie_set_context.get((cookie_name, registered), {})
-            set_by_url = network_context.get("set_by_request_url")
-            ep_for_cookie = None
+            network_ctx = cookie_set_context.get((cookie_name, registered), {})
+            set_by_url = network_ctx.get("set_by_request_url")
+
+            ep_matched = False
             if set_by_url:
-                match = next((r for r in request_log if r["url"] == set_by_url), None)
-                if match:
-                    ep_for_cookie = match.get("easyprivacy")
+                req_entry = request_by_url.get(set_by_url)
+                if req_entry:
+                    ep_matched = bool(
+                        (req_entry.get("easyprivacy") or {}).get("matched")
+                    )
 
-            single_cookie_metadata = {
-                "name": cookie_name,
-                "domain": cookie_domain,
-                "session": is_session,
-                "cookie_type": cookie_type,
-                "secure": cookie.get("secure"),
-                "httpOnly": cookie.get("httpOnly"),
-                "sameSite": cookie.get("sameSite"),
-                "expires_at": expires_at,
-                "lifetime_days": lifetime_days,
-                "set_by": {
-                    "url": network_context.get("set_by_request_url"),
-                    "type": network_context.get("set_by_request_type"),
-                    "initiator": network_context.get("set_by_initiator"),
-                    "third_party": network_context.get("is_third_party_set"),
-                    "easyprivacy": ep_for_cookie or {"matched": False},
-                },
-                "value": cookie.get("value", EMPTY_COOKIE),
-                "is_tracker": (
-                    tracker_detection.to_dict() if tracker_detection else None
-                ),
-            }
+            set_by_js = js_writes_by_name.get(cookie_name)
 
-            cookies_metadata.append(single_cookie_metadata)
+            if set_by_url:
+                source_type = "http"
+                source_http = {
+                    "url": set_by_url,
+                    "request_type": network_ctx.get("set_by_request_type"),
+                    "initiator": network_ctx.get("set_by_initiator"),
+                    "third_party": network_ctx.get("is_third_party_set"),
+                    "easyprivacy_matched": ep_matched,
+                }
+                source_js = None
+            elif set_by_js:
+                source_type = "javascript"
+                source_http = None
+                source_js = set_by_js
+            else:
+                source_type = "unknown"
+                source_http = None
+                source_js = None
 
-        avg_lifetime_days = (
-            sum(lifetime_values) / len(lifetime_values) if lifetime_values else None
-        )
+            tracker_out = None
+            if tracker_detection:
+                td = tracker_detection.to_dict()
+                tracker_out = {
+                    "lists": td.get("lists"),
+                    "matched_domain": td.get("matched_domain"),
+                }
+
+            cookies_out.append(
+                {
+                    "name": cookie_name,
+                    "domain": cookie_domain,
+                    "value": cookie.get("value", EMPTY_COOKIE),
+                    "cookie_type": cookie_type,
+                    "secure": cookie.get("secure"),
+                    "http_only": cookie.get("httpOnly"),
+                    "same_site": cookie.get("sameSite"),
+                    "expires_at": expires_at,
+                    "lifetime_days": lifetime_days,
+                    "source": {
+                        "type": source_type,
+                        "http": source_http,
+                        "javascript": source_js,
+                    },
+                    "tracker": tracker_out,
+                }
+            )
 
         total_requests = len(request_log)
-        ep_matched_requests = [
-            r for r in request_log if (r.get("easyprivacy") or {}).get("matched")
-        ]
-        num_ep_requests = len(ep_matched_requests)
-        blocked_domains = Counter(
-            tldextract.extract(r["url"]).registered_domain
-            for r in ep_matched_requests
-            if r["url"]
+        ep_matched_count = sum(
+            1 for r in request_log if (r.get("easyprivacy") or {}).get("matched")
         )
 
-        site_metadata = {
-            "collection_timestamp": now.isoformat(),
-            "total_cookies": len(cookies_metadata),
-            "num_session": num_session,
-            "num_persistent": num_persistent,
-            "avg_lifetime_days": avg_lifetime_days,
-            "min_lifetime_days": min(lifetime_values) if lifetime_values else None,
-            "max_lifetime_days": max(lifetime_values) if lifetime_values else None,
-            "total_requests": total_requests,
-            "num_easyprivacy_requests": num_ep_requests,
-            "pct_easyprivacy_requests": (
-                round(num_ep_requests / total_requests * 100, 1)
-                if total_requests
-                else 0.0
-            ),
-            "outgoing_ep_requests": [
-                {"domain": domain, "count": count}
-                for domain, count in blocked_domains.most_common(100)
-            ],
+        js_reads = (
+            len(cookie_read_interceptor.session.reads)
+            if cookie_read_interceptor is not None
+            else 0
+        )
+        js_writes = (
+            len(cookie_read_interceptor.session.writes)
+            if cookie_read_interceptor is not None
+            else 0
+        )
+
+        summary: Dict[str, Any] = {
+            "cookies": {
+                "total": len(cookies_out),
+                "session": num_session,
+                "persistent": num_persistent,
+            },
+            "requests": {
+                "total": total_requests,
+                "easyprivacy": ep_matched_count,
+                "easyprivacy_pct": (
+                    round(ep_matched_count / total_requests * 100, 1)
+                    if total_requests
+                    else 0.0
+                ),
+            },
+            "js": {
+                "reads": js_reads,
+                "writes": js_writes,
+            },
             "sensitivity": sensitivity_result,
         }
 
         if tracker_list is not None:
-            site_metadata["num_trackers"] = num_trackers
-            site_metadata["pct_trackers"] = (
-                round(num_trackers / len(cookies_metadata) * 100, 1)
-                if cookies_metadata
-                else 0.0
+            summary["cookies"]["trackers"] = num_trackers
+            summary["cookies"]["tracker_pct"] = (
+                round(num_trackers / len(cookies_out) * 100, 1) if cookies_out else 0.0
             )
 
         output_data: Dict[str, Any] = {
             "target_url": output.target_url,
-            "site_metadata": site_metadata,
-            "cookies": cookies_metadata,
+            "collected_at": now.isoformat(),
+            "summary": summary,
+            "cookies": cookies_out,
+            "requests": request_log,
         }
 
         if cookie_read_interceptor is not None:
-            output_data["cookie_reads"] = cookie_read_interceptor.session.to_dict()
+            output_data["js_activity"] = cookie_read_interceptor.session.to_dict()
 
         if output.dir:
             os.makedirs(output.dir, exist_ok=True)
@@ -174,5 +217,7 @@ class OutputFormat:
         else:
             output_path = output.name
 
-        with open(output_path, "w", encoding="utf-8") as f:
+        tmp_path = output_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(output_data, f, indent=4)
+        os.replace(tmp_path, output_path)

@@ -16,16 +16,16 @@ domains       – comma-separated list of those domains (truncated if long)
 Usage
 -----
     # Basic: flag anything read on ≥ 2 domains
-    python scripts/find_read_trackers.py cookie_reads_data/
+    python scripts/find_read_trackers.py --data cookie_reads_data/
 
     # Stricter threshold
-    python scripts/find_read_trackers.py cookie_reads_data/ --min-domains 5
+    python scripts/find_read_trackers.py --data cookie_reads_data/ --min-domains 5
 
     # Save to JSON for downstream use
-    python scripts/find_read_trackers.py cookie_reads_data/ --out results.json
+    python scripts/find_read_trackers.py --data cookie_reads_data/ --out results.json
 
     # Show per-domain breakdown for a specific cookie
-    python scripts/find_read_trackers.py cookie_reads_data/ --inspect _ga
+    python scripts/find_read_trackers.py --data cookie_reads_data/ --inspect _ga
 """
 
 from __future__ import annotations
@@ -35,9 +35,10 @@ import glob
 import json
 import os
 import sys
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from client.trackers.reads import build_cookie_domain_index, find_cross_domain_cookies
+from client.trackers.js import build_cookie_domain_index, find_cross_domain_cookies
 
 # ---------------------------------------------------------------------------
 # I/O helpers
@@ -68,9 +69,16 @@ def load_sessions(data_dir: str) -> list[dict]:
         except Exception as exc:
             print(f"  [!] Skipping {path}: {exc}", file=sys.stderr)
             continue
-        # New schema: cookie_reads is embedded inside the site JSON.
-        # Old schema: the file IS the session dict (has visited_domain at top level).
-        session = data.get("cookie_reads") if "cookie_reads" in data else data
+        # New schema: js_activity embedded inside site JSON (no visited_domain inside).
+        # Previous schema: cookie_reads embedded with visited_domain inside.
+        # Legacy schema: the file IS the session dict (has visited_domain at top level).
+        if "js_activity" in data:
+            session = dict(data["js_activity"])
+            session["visited_domain"] = urlparse(data.get("target_url", "")).netloc
+        elif "cookie_reads" in data:
+            session = data["cookie_reads"]
+        else:
+            session = data
         if session and session.get("reads"):
             sessions.append(session)
     return sessions
@@ -122,7 +130,12 @@ def parse_args() -> argparse.Namespace:
         description="Find cookies JS-read across multiple visited domains.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("data_dir", help="Directory of JSON files from get_cookie_reads.py.")
+    p.add_argument(
+        "--data",
+        default="../cookies_data",
+        metavar="DIR",
+        help="Directory containing the raw cookie JSON files.",
+    )
     p.add_argument(
         "--min-domains",
         type=int,

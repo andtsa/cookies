@@ -1,5 +1,6 @@
 import asyncio
 import csv
+import hashlib
 import os
 import re
 from typing import List, Optional
@@ -84,23 +85,13 @@ class ClientAPI:
         if crawl_cfg is None:
             crawl_cfg = CrawlConfig()
 
-        # Playwright internally creates fire-and-forget asyncio tasks for CDP
-        # protocol calls (Channel.send). These tasks can fail with Playwright
-        # protocol errors (e.g. TargetClosedError when the browser closes, or
-        # "object has been collected to prevent unbounded heap growth" under
-        # memory pressure) and emit "Task exception was never retrieved"
-        # warnings. All are expected, benign noise — suppress them.
         loop = asyncio.get_event_loop()
         _original_handler = loop.get_exception_handler()
 
         def _suppress_playwright_channel_errors(
             loop: asyncio.AbstractEventLoop, context: dict
         ) -> None:
-            if context.get(
-                "message"
-            ) == "Task exception was never retrieved" and isinstance(
-                context.get("exception"), PlaywrightError
-            ):
+            if isinstance(context.get("exception"), PlaywrightError):
                 return
             (
                 _original_handler(loop, context)
@@ -119,7 +110,10 @@ class ClientAPI:
                     url = "https://" + url
                 netloc = urlparse(url).netloc or url
                 safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", netloc) + ".json"
-                specific_dir = f"{output_dir}/{browser_cfg.browser_type.value}"
+                # shard into 256 subdirectories by hash to avoid 1M files in
+                # one directory, which can crash linux filesystems
+                shard = hashlib.md5(netloc.encode()).hexdigest()[:2]
+                specific_dir = f"{output_dir}/{browser_cfg.browser_type.value}/{shard}"
                 output_path = f"{specific_dir}/{safe_name}"
 
                 if not crawl_cfg.overwrite and os.path.exists(output_path):
@@ -138,16 +132,23 @@ class ClientAPI:
                 except Exception as e:
                     print(f"[{netloc}] error: {e}")
                     if crawl_cfg.failed_sites_path:
-                        _write_failed_site(
-                            path=crawl_cfg.failed_sites_path,
-                            url=url,
-                            error=e,
-                        )
+                        try:
+                            _write_failed_site(
+                                path=crawl_cfg.failed_sites_path,
+                                url=url,
+                                error=e,
+                            )
+                        except OSError as write_err:
+                            print(
+                                f"[{netloc}] warning: could not write to failed_sites file: {write_err}\n    original exception: {e}"
+                            )
 
                 if crawl_cfg.sleep_between_ms > 0:
                     await asyncio.sleep(crawl_cfg.sleep_between_ms / 1000)
 
-        await asyncio.gather(*[process_one(url) for url in urls])
+        await asyncio.gather(
+            *[process_one(url) for url in urls], return_exceptions=True
+        )
 
     @staticmethod
     async def process_batch_from_csv(
@@ -187,14 +188,15 @@ class ClientAPI:
         )
 
 
-
 def _write_failed_site(path: str, url: str, error: Exception) -> None:
     with open(path, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            url,
-            get_error_reason(error),
-        ])
+        writer.writerow(
+            [
+                url,
+                get_error_reason(error),
+            ]
+        )
 
 
 def get_error_reason(error: Exception) -> str:
