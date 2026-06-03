@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+import signal
 import sys
 import pandas as pd
 import time
@@ -170,53 +171,94 @@ def main():
     )
 
     batch_size = args.batch_size or 20
-    start_index = args.skip_first or 0
+
+    # auto-resume: if --skip-first was not explicitly set and a progress file
+    # exists in the output directory, pick up from where the last run stopped
+    progress_file = os.path.join(args.output_dir, "progress.txt")
+    if args.skip_first:
+        start_index = args.skip_first
+    elif os.path.exists(progress_file):
+        with open(progress_file) as _pf:
+            start_index = int(_pf.read().strip())
+        print(
+            f"[Crawler] Auto-resuming from site {start_index} (found {progress_file})"
+        )
+    else:
+        start_index = 0
 
     async def run_all():
+        loop = asyncio.get_running_loop()
+        main_task = asyncio.current_task()
+
+        # Treat SIGTERM the same as Ctrl-C, cancel the main task so asyncio
+        # can clean up running tasks before the process exits
+        def _on_sigterm():
+            print("\n[Crawler] Received SIGTERM, cancelling crawl...")
+            if main_task:
+                main_task.cancel()
+
+        loop.add_signal_handler(signal.SIGTERM, _on_sigterm)
+
         processed_sites = start_index
-        for df in pd.read_csv(
-            args.input,
-            header=0,
-            names=["rank", "url"],
-            skiprows=start_index,
-            chunksize=batch_size,
-        ):
-            batch_start_t = time.time()
-            print(f"\n{'='*60}")
-            print(
-                f"  [Crawler] Processing sites {processed_sites + 1} to {processed_sites + len(df)}"
-            )
-            print(
-                f"            -> from `{df["url"].tolist()[0]}` until `{df["url"].tolist()[-1]}`"
-            )
-            print(f"            -> start time {datetime.now().strftime("%H:%M")}")
-            print(f"{'='*60}\n")
-            for browser in browsers:
-                if len(browsers) > 1:
-                    print(f"    [Browser={browser.value}]")
-
-                browser_cfg = BrowserConfig(
-                    headless=args.headless,
-                    timeout_ms=args.timeout_ms,
-                    wait_time_ms=args.wait_time_ms,
-                    tracker_list=tracker_list,
-                    matcher=matcher,
-                    intercept_cookie_reads=args.cookie_reads,
-                    browser_type=browser,
-                    classifier=classifier,
+        try:
+            for df in pd.read_csv(
+                args.input,
+                header=0,
+                names=["rank", "url"],
+                skiprows=start_index,
+                chunksize=batch_size,
+                nrows=crawl_cfg.limit,
+            ):
+                batch_start_t = time.time()
+                print(f"\n{'='*60}")
+                print(
+                    f"  [Crawler] Processing sites {processed_sites + 1} to {processed_sites + len(df)}"
                 )
-
-                await ClientAPI.process_batch(
-                    websites=df["url"].tolist(),
-                    output_dir=args.output_dir,
-                    browser_cfg=browser_cfg,
-                    crawl_cfg=crawl_cfg,
+                print(
+                    f"            -> from `{df['url'].tolist()[0]}` until `{df['url'].tolist()[-1]}`"
                 )
-            print(f"\n{'='*60}")
+                print(f"            -> start time {datetime.now().strftime('%H:%M')}")
+                print(f"{'='*60}\n")
+                for browser in browsers:
+                    if len(browsers) > 1:
+                        print(f"    [Browser={browser.value}]")
+
+                    browser_cfg = BrowserConfig(
+                        headless=args.headless,
+                        timeout_ms=args.timeout_ms,
+                        wait_time_ms=args.wait_time_ms,
+                        tracker_list=tracker_list,
+                        matcher=matcher,
+                        intercept_cookie_reads=args.cookie_reads,
+                        browser_type=browser,
+                        classifier=classifier,
+                    )
+
+                    await ClientAPI.process_batch(
+                        websites=df["url"].tolist(),
+                        output_dir=args.output_dir,
+                        browser_cfg=browser_cfg,
+                        crawl_cfg=crawl_cfg,
+                    )
+                print(f"\n{'='*60}")
+                print(
+                    f"  [Crawler] finished batch {processed_sites // batch_size} in {time.time() - batch_start_t}s"
+                )
+                processed_sites += len(df)
+
+                # persist progress after every completed batch so a restart
+                # can resume from here without manual --skip-first
+                os.makedirs(args.output_dir, exist_ok=True)
+                with open(progress_file, "w") as _pf:
+                    _pf.write(str(processed_sites))
+
+        except asyncio.CancelledError:
             print(
-                f"  [Crawler] finished batch {processed_sites // batch_size} in {time.time() - batch_start_t}s"
+                f"[Crawler] Crawl cancelled at site {processed_sites}. Progress saved."
             )
-            processed_sites += len(df)
+            raise
+        finally:
+            loop.remove_signal_handler(signal.SIGTERM)
 
     asyncio.run(run_all())
 
@@ -226,3 +268,5 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("Interrupted by user")
+    except asyncio.CancelledError:
+        pass  # clean exit after SIGTERM

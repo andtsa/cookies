@@ -7,10 +7,10 @@ reports every (name, md5_value) pair that appears on more than one website.
 Usage
 -----
     python find_shared_cookies.py                        # default: ../cookies_data
-    python find_shared_cookies.py --data cookies_data
-    python find_shared_cookies.py --data cookies_data --min-sites 3
-    python find_shared_cookies.py --data cookies_data --out shared_cookies.json
-    python find_shared_cookies.py --data cookies_data --trackers-only
+    python find_shared_cookies.py cookies_data
+    python find_shared_cookies.py cookies_data --min-sites 3
+    python find_shared_cookies.py cookies_data --out shared_cookies.json
+    python find_shared_cookies.py cookies_data --trackers-only
 
 Output
 ------

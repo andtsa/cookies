@@ -12,10 +12,11 @@ import tldextract
 # javascript injected before every page's own scripts
 _COOKIE_GETTER_OVERRIDE_JS = """
 (function () {
-    // grab the original getter from the prototype so we always call the real one
+    // grab the original getter/setter from the prototype
     var _desc = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
     if (!_desc || typeof _desc.get !== 'function') { return; }
     var _originalGet = _desc.get;
+    var _originalSet = _desc.set;
 
     Object.defineProperty(document, 'cookie', {
         configurable: true,
@@ -24,14 +25,10 @@ _COOKIE_GETTER_OVERRIDE_JS = """
         get: function () {
             var raw = _originalGet.call(this);
             try {
-                // __reportCookieRead is registered by playwright's exposeFunction
-                // before this script runs, so it should always be present
                 if (typeof window.__reportCookieRead === 'function') {
-                    // collect a shallow stack trace (and skip this wrapper frame)
                     var stack = '';
                     try { stack = new Error().stack || ''; } catch (e) {}
                     var frames = stack.split('\\n').slice(1, 5).join(' | ');
-
                     window.__reportCookieRead({
                         frameUrl:  window.location.href,
                         cookies:   raw,
@@ -39,14 +36,26 @@ _COOKIE_GETTER_OVERRIDE_JS = """
                         ts:        Date.now(),
                     });
                 }
-            } catch (e) {
-                // never let instrumentation break the page
-            }
+            } catch (e) {}
             return raw;
         },
 
-        // preserve the original setter so writes still work normally
-        set: _desc.set,
+        set: function (val) {
+            try {
+                if (typeof window.__reportCookieWrite === 'function') {
+                    var stack = '';
+                    try { stack = new Error().stack || ''; } catch (e) {}
+                    var frames = stack.split('\\n').slice(1, 5).join(' | ');
+                    window.__reportCookieWrite({
+                        frameUrl:  window.location.href,
+                        rawValue:  val,
+                        stack:     frames,
+                        ts:        Date.now(),
+                    });
+                }
+            } catch (e) {}
+            _originalSet.call(this, val);
+        },
     });
 })();
 """
@@ -81,11 +90,30 @@ class CookieRead:
 
 
 @dataclass
+class CookieWrite:
+    """One instance of document.cookie being written by JS."""
+
+    visited_domain: str
+    frame_url: str
+    raw_value: (
+        str  # full string passed to the setter, e.g. "foo=bar; path=/; Max-Age=3600"
+    )
+    stack: str
+    ts: float
+
+    def parsed_name(self) -> str:
+        """Extract the cookie name from the raw setter value."""
+        first = self.raw_value.split(";", 1)[0].strip()
+        return first.split("=", 1)[0].strip() if "=" in first else first
+
+
+@dataclass
 class InterceptorSession:
-    """Accumulates CookieRead events for one page visit."""
+    """Accumulates CookieRead and CookieWrite events for one page visit."""
 
     visited_domain: str
     reads: list[CookieRead] = field(default_factory=list)
+    writes: list[CookieWrite] = field(default_factory=list)
 
     def cookie_names_seen(self) -> set[str]:
         names: set[str] = set()
@@ -95,7 +123,6 @@ class InterceptorSession:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "visited_domain": self.visited_domain,
             "reads": [
                 {
                     "frame_url": r.frame_url,
@@ -104,6 +131,15 @@ class InterceptorSession:
                     "ts": r.ts,
                 }
                 for r in self.reads
+            ],
+            "writes": [
+                {
+                    "frame_url": w.frame_url,
+                    "raw_value": w.raw_value,
+                    "stack": w.stack,
+                    "ts": w.ts,
+                }
+                for w in self.writes
             ],
         }
 
@@ -137,14 +173,11 @@ class CookieReadInterceptor:
 
     async def attach(self, page: Any) -> None:
         """
-        Wire up the JS override and the Python callback.
+        Wire up the JS override and the Python callbacks.
         Must be called *before* page.goto().
         """
-        # 1. Register the Python-side callback so JS can call it.
-        #    Playwright serialises the JS argument dict → Python dict automatically.
         await page.expose_function("__reportCookieRead", self._on_cookie_read)
-
-        # 2. Inject the getter override into every (same-origin) frame.
+        await page.expose_function("__reportCookieWrite", self._on_cookie_write)
         await page.add_init_script(_COOKIE_GETTER_OVERRIDE_JS)
 
     async def _on_cookie_read(self, event: dict[str, Any]) -> None:
@@ -160,6 +193,20 @@ class CookieReadInterceptor:
         )
         async with self._lock:
             self.session.reads.append(read)
+
+    async def _on_cookie_write(self, event: dict[str, Any]) -> None:
+        """Called from JS each time document.cookie is assigned."""
+        if self._is_closed:
+            return
+        write = CookieWrite(
+            visited_domain=self.session.visited_domain,
+            frame_url=event.get("frameUrl", ""),
+            raw_value=event.get("rawValue", ""),
+            stack=event.get("stack", ""),
+            ts=event.get("ts", time.time() * 1000) / 1000.0,
+        )
+        async with self._lock:
+            self.session.writes.append(write)
 
 
 # ---------------------------------------------------------------------------

@@ -16,3 +16,5 @@ plots/
 .tracker_cache.zip
 .env
 failed_sites.txt
+profile_output/
+*.log

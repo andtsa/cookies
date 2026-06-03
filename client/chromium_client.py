@@ -22,7 +22,6 @@ class ChromiumClient(Client):
     ):
         super().__init__(cfg)
         self.client = None  # CDP session
-        self._request_context: dict[str, dict] = {}
         self.channel = channel
         self.executable_path = executable_path
 
@@ -42,6 +41,7 @@ class ChromiumClient(Client):
         await self.client.send("Network.clearBrowserCookies")
 
         self.client.on("Network.requestWillBeSent", self._on_request_sent)
+        self.client.on("Network.responseReceived", self._on_response_received)
         self.client.on("Network.responseReceivedExtraInfo", self._on_response_extra)
 
         await self._attach_cookie_read_interceptor(url)
@@ -54,15 +54,15 @@ class ChromiumClient(Client):
         assert self.context is not None, "Context not initialized"
         assert self.client is not None and self.browser is not None, "Not initialized"
 
-        self.page_html = await self.page.content()
         response = await self.client.send("Network.getAllCookies")
         cookies = response.get("cookies", [])
 
-        sensitivity_result = (
-            self.cfg.classifier.classify_html(self.page_html)
-            if self.cfg.classifier
-            else None
-        )
+        if self.cfg.classifier:
+            sensitivity_result = self.cfg.classifier.classify_html(
+                await self.page.content()
+            )
+        else:
+            sensitivity_result = None
 
         OutputFormat.process_and_save(
             cookies,
@@ -84,12 +84,49 @@ class ChromiumClient(Client):
         request_url = event["request"]["url"]
         document_url = event.get("documentURL", "")
         cdp_type = event.get("type", "")
+        initiator = (event.get("initiator") or {}).get("url", "")
+        redirect_response = event.get("redirectResponse")
+
+        if redirect_response:
+            # This is a redirect hop on an existing request
+            # fold it into the existing log entry rather than creating a new one.
+            #
+            # The redirectResponse field carries the status/url of the hop that just
+            # completed, and request_url is the new destination
+            ctx = self._request_context.get(rid)
+            if ctx:
+                log_entry = ctx.get("_log_entry")
+                if log_entry is not None:
+                    log_entry["redirect_chain"].append(
+                        {
+                            "url": ctx["url"],
+                            "status": redirect_response.get("status"),
+                        }
+                    )
+                    log_entry["url"] = request_url
+                # Keep the same log_entry reference,
+                # just update the URL so _on_response_extra attributes Set-Cookie to the right hop
+                ctx["url"] = request_url
+                ctx["document_url"] = document_url
+            return
+
+        raw_cookie_header = (event["request"].get("headers") or {}).get("Cookie", "")
+        cookies_sent = (
+            [
+                part.split("=", 1)[0].strip()
+                for part in raw_cookie_header.split(";")
+                if part.strip()
+            ]
+            if raw_cookie_header
+            else []
+        )
 
         self._request_context[rid] = {
             "url": request_url,
             "document_url": document_url,
             "type": cdp_type,
-            "initiator": (event.get("initiator") or {}).get("url", ""),
+            "initiator": initiator,
+            "cookies_sent": cookies_sent,
         }
 
         easyprivacy_match = {"matched": False}
@@ -97,13 +134,27 @@ class ChromiumClient(Client):
             result = self.cfg.matcher.match(request_url, document_url, cdp_type)
             easyprivacy_match = result.to_dict()
 
-        self._request_log.append(
-            {
-                "url": request_url,
-                "type": cdp_type,
-                "easyprivacy": easyprivacy_match,
-            }
-        )
+        log_entry = {
+            "url": request_url,
+            "type": cdp_type,
+            "status": None,
+            "document_url": document_url,
+            "initiator": initiator,
+            "cookies_sent": cookies_sent,
+            "redirect_chain": [],
+            "easyprivacy": easyprivacy_match,
+        }
+        self._request_log.append(log_entry)
+        self._request_context[rid]["_log_entry"] = log_entry
+
+    async def _on_response_received(self, event: dict) -> None:
+        rid = event["requestId"]
+        status = (event.get("response") or {}).get("status")
+        ctx = self._request_context.get(rid)
+        if ctx and status is not None:
+            log_entry = ctx.get("_log_entry")
+            if log_entry is not None:
+                log_entry["status"] = status
 
     async def _on_response_extra(self, event: dict) -> None:
         rid = event["requestId"]

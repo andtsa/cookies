@@ -40,14 +40,14 @@ class SimplePlaywrightClient(Client):
             self.browser is not None and self.playwright is not None
         ), "Not initialized"
 
-        self.page_html = await self.page.content()
         cookies = await self.context.cookies()
 
-        sensitivity_result = (
-            self.cfg.classifier.classify_html(self.page_html)
-            if self.cfg.classifier
-            else None
-        )
+        if self.cfg.classifier:
+            sensitivity_result = self.cfg.classifier.classify_html(
+                await self.page.content()
+            )
+        else:
+            sensitivity_result = None
 
         OutputFormat.process_and_save(
             cookies,
@@ -68,19 +68,46 @@ class SimplePlaywrightClient(Client):
         request_url = request.url
         document_url = request.frame.url if request.frame else ""
         resource_type = request.resource_type
+        redirected_from = request.redirected_from
+
+        if redirected_from is not None:
+            # This request is the destination of a redirect.  Playwright fires
+            # _on_response for the redirecting request before firing _on_request
+            # for the destination, so the originating log entry already has its
+            # status code patched in.  Fold this hop into that entry.
+            origin_ctx = self._request_context.get(redirected_from.url)
+            if origin_ctx:
+                log_entry = origin_ctx["_log_entry"]
+                log_entry["redirect_chain"].append(
+                    {
+                        "url": redirected_from.url,
+                        "status": log_entry["status"],
+                    }
+                )
+                log_entry["url"] = request_url
+                log_entry["status"] = None  # will be patched by _on_response
+                # re-key the context entry so _on_response can find it
+                self._request_context[request_url] = origin_ctx
+                return
 
         easyprivacy_match = {"matched": False}
         if self.cfg.matcher and request_url and document_url:
             result = self.cfg.matcher.match(request_url, document_url, resource_type)
             easyprivacy_match = result.to_dict()
 
-        self._request_log.append(
-            {
-                "url": request_url,
-                "type": resource_type,
-                "easyprivacy": easyprivacy_match,
-            }
-        )
+        log_entry = {
+            "url": request_url,
+            "type": resource_type,
+            "status": None,
+            "document_url": document_url,
+            "initiator": "",  # not available via Playwright standard API
+            "cookies_sent": [],  # Cookie header not exposed via Playwright standard API
+            "redirect_chain": [],
+            "easyprivacy": easyprivacy_match,
+        }
+        self._request_log.append(log_entry)
+        # keep a reference keyed by URL so _on_response can patch in the status
+        self._request_context[request_url] = {"_log_entry": log_entry}
 
     async def _on_response(self, response) -> None:
         if self._is_closed:
@@ -89,6 +116,13 @@ class SimplePlaywrightClient(Client):
             headers = await response.all_headers()
         except Exception:
             return
+
+        # patch status back onto the matching request log entry
+        log_entry = (self._request_context.get(response.request.url) or {}).get(
+            "_log_entry"
+        )
+        if log_entry is not None:
+            log_entry["status"] = response.status
 
         set_cookie = headers.get("set-cookie", "")
         if not set_cookie:
