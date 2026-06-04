@@ -63,6 +63,7 @@ class CrawlConfig:
     failed_sites_path: Optional[str] = "failed_sites.csv"
     sleep_between_ms: int = 0
     output_dir: str = "cookies_data/Netherlands"
+    country: str = "unknown"
 
 
 @dataclass

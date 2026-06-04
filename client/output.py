@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional
 
 import tldextract
 
-from .config import Site
 from client.trackers.js import CookieReadInterceptor
 
 from .trackers import TrackerList
@@ -19,10 +18,18 @@ class Outfile:
         dir: str = "./cookie_data/",
         name: str = "default",
         target_url: str = "",
+        country: str = "unknown",
+        browser: str = "unknown",
+        rank: Optional[int] = None,
+        category: Optional[str] = None,
     ):
         self.dir = dir
         self.name = name
         self.target_url = target_url
+        self.country = country
+        self.browser = browser
+        self.rank = rank
+        self.category = category
 
     @property
     def path(self) -> str:
@@ -32,7 +39,6 @@ class Outfile:
 class OutputFormat:
     @staticmethod
     def process_and_save(
-        site: Site,
         cookies: List[Dict[str, Any]],
         cookie_set_context: Dict[tuple[str, str], Any],
         request_log: List[Dict[str, Any]],
@@ -111,32 +117,37 @@ class OutputFormat:
 
             set_by_js = js_writes_by_name.get(cookie_name)
 
+            # Flat setter fields — HTTP and JS paths have different shapes.
             if set_by_url:
-                source_type = "http"
-                source_http = {
-                    "url": set_by_url,
-                    "request_type": network_ctx.get("set_by_request_type"),
-                    "initiator": network_ctx.get("set_by_initiator"),
-                    "third_party": network_ctx.get("is_third_party_set"),
-                    "easyprivacy_matched": ep_matched,
+                setter_type = "http"
+                setter_fields: dict[str, Any] = {
+                    "setter_url": set_by_url,
+                    "setter_request_type": network_ctx.get("set_by_request_type"),
+                    "setter_third_party": network_ctx.get("is_third_party_set"),
+                    "setter_ep_matched": ep_matched,
                 }
-                source_js = None
+                initiator = network_ctx.get("set_by_initiator") or ""
+                if initiator:
+                    setter_fields["setter_initiator"] = initiator
             elif set_by_js:
-                source_type = "javascript"
-                source_http = None
-                source_js = set_by_js
+                setter_type = "javascript"
+                setter_fields = {
+                    "setter_frame_url": set_by_js.get("frame_url"),
+                    "setter_raw_value": set_by_js.get("raw_value"),
+                }
             else:
-                source_type = "unknown"
-                source_http = None
-                source_js = None
+                setter_type = "unknown"
+                setter_fields = {}
 
-            tracker_out = None
+            # Flat tracker fields (null when not a tracker).
+            tracker_lists_out: list[str] | None = None
+            tracker_provider_out: str | None = None
             if tracker_detection:
                 td = tracker_detection.to_dict()
-                tracker_out = {
-                    "lists": td.get("lists"),
-                    "matched_domain": td.get("matched_domain"),
-                }
+                lists = td.get("lists") or []
+                if lists:
+                    tracker_lists_out = list(lists)
+                    tracker_provider_out = td.get("matched_domain") or None
 
             cookies_out.append(
                 {
@@ -149,12 +160,10 @@ class OutputFormat:
                     "same_site": cookie.get("sameSite"),
                     "expires_at": expires_at,
                     "lifetime_days": lifetime_days,
-                    "source": {
-                        "type": source_type,
-                        "http": source_http,
-                        "javascript": source_js,
-                    },
-                    "tracker": tracker_out,
+                    "setter_type": setter_type,
+                    **setter_fields,
+                    "tracker_lists": tracker_lists_out,
+                    "tracker_provider": tracker_provider_out,
                 }
             )
 
@@ -202,26 +211,49 @@ class OutputFormat:
                 round(num_trackers / len(cookies_out) * 100, 1) if cookies_out else 0.0
             )
 
+        # Pruned request log:
+        #   - drop cookies_sent (always empty in practice)
+        #   - drop status (not used in any analysis)
+        #   - omit document_url when it equals target_url (redundant for ~all requests)
+        #   - omit initiator when empty string (sparse)
+        #   - omit redirect_chain when empty (only 2% of requests have redirects)
+        target_url = output.target_url
+        requests_out = []
+        for r in request_log:
+            req: dict[str, Any] = {
+                "url": r.get("url", ""),
+                "type": r.get("type", ""),
+                "easyprivacy": r.get("easyprivacy", {"matched": False}),
+            }
+            doc_url = r.get("document_url", "")
+            if doc_url and doc_url != target_url:
+                req["document_url"] = doc_url
+            initiator = r.get("initiator", "")
+            if initiator:
+                req["initiator"] = initiator
+            redirect_chain = r.get("redirect_chain") or []
+            if redirect_chain:
+                req["redirect_chain"] = redirect_chain
+            requests_out.append(req)
+
         output_data: Dict[str, Any] = {
-            "target_url": output.target_url,
-            "site_rank": site.rank,
-            "site_category": site.category,
+            "target_url": target_url,
             "collected_at": now.isoformat(),
+            "crawl_context": {
+                "country": output.country,
+                "browser": output.browser,
+                "rank": output.rank,
+                "category": output.category,
+            },
             "summary": summary,
             "cookies": cookies_out,
-            "requests": request_log,
         }
+
+        if requests_out:
+            output_data["requests"] = requests_out
 
         if cookie_read_interceptor is not None:
             output_data["js_activity"] = cookie_read_interceptor.session.to_dict()
-
-        # Persist the raw request log (full URLs with query strings) so that
-        # post-hoc cookie-syncing detection (scripts/find_cookie_syncing.py) can
-        # search for cookie values shared cross-domain via request parameters.
-        # Only populated for Chromium-family browsers (CDP); other engines pass
-        # an empty list and the field is omitted.
-        if request_log:
-            output_data["requests"] = request_log
 
         if output.dir:
             os.makedirs(output.dir, exist_ok=True)
