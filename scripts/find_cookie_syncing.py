@@ -22,10 +22,10 @@ Three layers of evidence (per the agreed design):
 
   PATH (endpoint heuristic)
       A cross-domain request hits a known sync-endpoint keyword in its URL path
-      or a query-parameter *name* (e.g. /usersync, /cookie-sync, partner_uid),
-      AND the request also carries an identifier (a high-entropy value or a
-      matched cookie). Reported separately as ``path_syncs``. See
-      ``PathSyncDetector``.
+      or a query-parameter *name* (e.g. /usersync, /cookie-sync, partner_uid).
+      This is not a separate population: it *annotates* the confirmed/candidate
+      rows the request already produced with a ``path_sync`` field (those rows
+      are the corroborating identifier). See ``PathSyncDetector``.
 
 For each site this writes a ``cookie_syncing`` field back into the JSON (like
 process_cookies.py adds party_type) and prints a cross-site aggregate report of
@@ -222,19 +222,23 @@ def analyze_site(
     values. This catches more transformed syncs at the cost of some false-
     positive risk, so it is opt-in.
 
-    When ``path_detector`` is provided, a third PATH layer flags cross-domain
-    requests that hit a known sync-endpoint keyword (in the URL path or a
-    query-parameter name) *and* carry an identifier on the same request — either
-    a confirmed cookie match or a high-entropy value.
+    When ``path_detector`` is provided, the PATH layer annotates any confirmed
+    or candidate row whose cross-domain request also hit a known sync-endpoint
+    keyword (in the URL path or a query-parameter name) with a ``path_sync``
+    field. The annotated row *is* the corroborating identifier, so ``kind``
+    records which: "cookie" rows overlap with the confirmed layer; "entropy"
+    rows are exclusive to the path heuristic.
 
     Returns a ``cookie_syncing`` dict:
         {
           "site_domain": <registered domain of the page>,
-          "confirmed": [ {cookie_name, param, to_domain, request_url, match}, ...],
-          "candidates": [ {param, value_preview, total_bits, to_domain, request_url}, ...],
-          "path_syncs": [ {to_domain, request_url, path_keywords, param_keywords,
-                           where, identifier}, ...],
+          "confirmed": [ {cookie_name, param, to_domain, request_url, match,
+                          path_sync?}, ...],
+          "candidates": [ {param, value_preview, total_bits, to_domain,
+                          request_url, path_sync?}, ...],
         }
+    where ``path_sync`` (optional) is
+        {path_keywords, param_keywords, where, kind}.
     """
     target_url = data.get("target_url", "")
     site_domain = _registered_domain(target_url)
@@ -261,7 +265,6 @@ def analyze_site(
 
     confirmed = []
     candidates = []
-    path_syncs = []
 
     for req in requests:
         url = req.get("url", "")
@@ -272,10 +275,9 @@ def analyze_site(
         if not to_domain or to_domain == site_domain:
             continue
 
-        # Request-level identifier signal for the PATH layer: the first cookie
-        # match or high-entropy value seen on this request corroborates an
-        # endpoint-keyword hit. Reuses the work already done below — no 2nd pass.
-        req_identifier: dict | None = None
+        # Rows produced by *this* request, so the PATH layer can annotate them.
+        req_confirmed = []
+        req_candidates = []
 
         for param_name, raw_value in _param_values(url):
             if not raw_value:
@@ -300,7 +302,7 @@ def analyze_site(
                         break
 
             if matched_name is not None:
-                confirmed.append(
+                req_confirmed.append(
                     {
                         "cookie_name": matched_name,
                         "param": param_name,
@@ -309,13 +311,11 @@ def analyze_site(
                         "match": match_kind,
                     }
                 )
-                if req_identifier is None:
-                    req_identifier = {"kind": "cookie", "cookie_name": matched_name}
                 continue  # don't also count as a candidate
 
             # SECONDARY: high-entropy cross-domain param value.
             if len(decoded) >= MIN_PRIMARY_VALUE_LEN and total_bits(decoded) >= min_bits:
-                candidates.append(
+                req_candidates.append(
                     {
                         "param": param_name,
                         "value_preview": decoded[:12] + ("…" if len(decoded) > 12 else ""),
@@ -324,25 +324,33 @@ def analyze_site(
                         "request_url": url,
                     }
                 )
-                if req_identifier is None:
-                    req_identifier = {
-                        "kind": "entropy",
-                        "total_bits": round(total_bits(decoded), 1),
-                    }
 
-        # PATH: endpoint keyword on a cross-domain request, corroborated by an
-        # identifier observed on that same request.
-        if path_detector is not None and req_identifier is not None:
+        # PATH: if this cross-domain request hits a known sync endpoint, attach
+        # the endpoint evidence to every identifier row it produced. The rows
+        # *are* the corroborating identifier (a confirmed cookie or a candidate),
+        # so no separate identifier check is needed. ``kind`` records which:
+        # "cookie" rows are the overlap with confirmed, "entropy" rows are
+        # exclusive to this layer.
+        if path_detector is not None and (req_confirmed or req_candidates):
             ev = path_detector.match(url, to_domain)
             if ev is not None:
-                ev["identifier"] = req_identifier
-                path_syncs.append(ev)
+                base = {
+                    "path_keywords": ev["path_keywords"],
+                    "param_keywords": ev["param_keywords"],
+                    "where": ev["where"],
+                }
+                for row in req_confirmed:
+                    row["path_sync"] = {**base, "kind": "cookie"}
+                for row in req_candidates:
+                    row["path_sync"] = {**base, "kind": "entropy"}
+
+        confirmed.extend(req_confirmed)
+        candidates.extend(req_candidates)
 
     return {
         "site_domain": site_domain,
         "confirmed": confirmed,
         "candidates": candidates,
-        "path_syncs": path_syncs,
     }
 
 
@@ -377,6 +385,7 @@ def print_report(per_site: list[dict]) -> None:
     total_candidates = 0
     total_substring = 0
     total_path = 0
+    total_path_excl = 0
     sites_with_sync = 0
     sites_with_path = 0
 
@@ -392,12 +401,21 @@ def print_report(per_site: list[dict]) -> None:
         for ev in sync["confirmed"]:
             pair_counter[(sync["site_domain"], ev["to_domain"])] += 1
 
-        path_syncs = sync.get("path_syncs", [])
-        if path_syncs:
+        # Path-sync evidence now lives as a ``path_sync`` annotation on
+        # confirmed/candidate rows. Count it per request (dedup across the
+        # possibly-many rows of one request) so the totals mean "requests".
+        confirmed_urls = {ev["request_url"] for ev in sync["confirmed"]}
+        seen: dict[str, str] = {}  # request_url -> to_domain
+        for ev in sync["confirmed"] + sync["candidates"]:
+            if "path_sync" in ev:
+                seen.setdefault(ev["request_url"], ev["to_domain"])
+        if seen:
             sites_with_path += 1
-        total_path += len(path_syncs)
-        for ev in path_syncs:
-            path_pair_counter[(sync["site_domain"], ev["to_domain"])] += 1
+        total_path += len(seen)
+        for url, to in seen.items():
+            if url not in confirmed_urls:
+                total_path_excl += 1
+            path_pair_counter[(sync["site_domain"], to)] += 1
 
     print(f"\n{'='*70}")
     print("  Cookie Syncing Report")
@@ -408,6 +426,7 @@ def print_report(per_site: list[dict]) -> None:
     print(f"  Candidate sync events  : {total_candidates}")
     print(f"  Sites with path-sync   : {sites_with_path}")
     print(f"  Path-sync events       : {total_path}")
+    print(f"    excl. of confirmed   : {total_path_excl}")
     print(f"{'='*70}\n")
 
     if pair_counter:

@@ -162,39 +162,55 @@ def test_glob_to_regex_escapes_metachars():
     assert det.match("https://t.com/axb/x", "t.com") is None
 
 
+def _path_annotated(result):
+    """All confirmed/candidate rows carrying a path_sync annotation."""
+    return [r for r in result["confirmed"] + result["candidates"] if "path_sync" in r]
+
+
 def test_path_sync_requires_identifier():
-    # Endpoint keyword but NO identifier on the request -> no path_sync.
+    # Endpoint keyword but NO identifier on the request -> nothing to annotate.
     data = _site([{"url": "https://tracker-b.com/usersync?lang=en"}])
     result = fcs.analyze_site(data, min_bits=36.0, path_detector=_DETECTOR)
-    assert result["path_syncs"] == []
+    assert _path_annotated(result) == []
 
 
-def test_path_sync_corroborated_by_cookie():
-    data = _site([{"url": f"https://tracker-b.com/usersync?partner_id={UID}"}])
+def test_path_sync_annotates_confirmed_row_as_cookie():
+    # Neutral param name "u" so the only endpoint signal is the path.
+    data = _site([{"url": f"https://tracker-b.com/usersync?u={UID}"}])
     result = fcs.analyze_site(data, min_bits=36.0, path_detector=_DETECTOR)
-    assert len(result["path_syncs"]) == 1
-    ev = result["path_syncs"][0]
-    assert ev["to_domain"] == "tracker-b.com"
-    assert "usersync" in ev["path_keywords"]
-    assert ev["identifier"]["kind"] == "cookie"
+    assert len(result["confirmed"]) == 1
+    ps = result["confirmed"][0]["path_sync"]
+    assert "usersync" in ps["path_keywords"]
+    assert ps["where"] == "path"
+    assert ps["kind"] == "cookie"
 
 
-def test_path_sync_corroborated_by_entropy():
+def test_path_sync_annotates_candidate_row_as_entropy():
     other = "z9q3w8e7r6t5y4u3i2o1p0"  # high-entropy, not a known cookie
     data = _site([{"url": f"https://tracker-b.com/cookie-sync?u={other}"}])
     result = fcs.analyze_site(data, min_bits=36.0, path_detector=_DETECTOR)
-    assert len(result["path_syncs"]) == 1
-    assert result["path_syncs"][0]["identifier"]["kind"] == "entropy"
+    assert result["confirmed"] == []
+    assert len(result["candidates"]) == 1
+    assert result["candidates"][0]["path_sync"]["kind"] == "entropy"
 
 
 def test_path_sync_cross_domain_only():
     # Same registered domain is never a sync, even with an identifier.
     data = _site([{"url": f"https://api.news-site.com/usersync?id={UID}"}])
     result = fcs.analyze_site(data, min_bits=36.0, path_detector=_DETECTOR)
-    assert result["path_syncs"] == []
+    assert _path_annotated(result) == []
 
 
 def test_path_sync_absent_when_detector_disabled():
     data = _site([{"url": f"https://tracker-b.com/usersync?partner_id={UID}"}])
     result = fcs.analyze_site(data, min_bits=36.0, path_detector=None)
-    assert result["path_syncs"] == []
+    assert "path_sync" not in result["confirmed"][0]
+
+
+def test_path_sync_no_endpoint_leaves_rows_unannotated():
+    # Cross-domain confirmed sync, but the URL (path + param name) has no
+    # sync-endpoint keyword -> the confirmed row is left unannotated.
+    data = _site([{"url": f"https://tracker-b.com/p?u={UID}"}])
+    result = fcs.analyze_site(data, min_bits=36.0, path_detector=_DETECTOR)
+    assert len(result["confirmed"]) == 1
+    assert "path_sync" not in result["confirmed"][0]
