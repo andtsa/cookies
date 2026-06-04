@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import tldextract
 
+from .config import Site
 from client.trackers.js import CookieReadInterceptor
 
 from .trackers import TrackerList
@@ -31,6 +32,7 @@ class Outfile:
 class OutputFormat:
     @staticmethod
     def process_and_save(
+        site: Site,
         cookies: List[Dict[str, Any]],
         cookie_set_context: Dict[tuple[str, str], Any],
         request_log: List[Dict[str, Any]],
@@ -202,6 +204,8 @@ class OutputFormat:
 
         output_data: Dict[str, Any] = {
             "target_url": output.target_url,
+            "site_rank": site.rank,
+            "site_category": site.category,
             "collected_at": now.isoformat(),
             "summary": summary,
             "cookies": cookies_out,
@@ -227,5 +231,5 @@ class OutputFormat:
 
         tmp_path = output_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(output_data, f, indent=4)
+            json.dump(output_data, f, indent=None)
         os.replace(tmp_path, output_path)
