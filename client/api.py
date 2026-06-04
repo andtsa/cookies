@@ -228,9 +228,9 @@ def get_error_reason(error: BaseException) -> tuple[str, str]:
     if match:
         return match.group(1), "network error"
 
-    # asyncio.TimeoutError carries our descriptive label as its message
-    # (e.g. "TIMEOUT:browser_setup", "TIMEOUT:Network.getAllCookies").
-    # Playwright's own TimeoutError shows up as "Timeout NNNms exceeded" in msg.
+    if "Page.goto" in msg:
+        return "TIMEOUT", "Page.goto"
+
     if isinstance(error, asyncio.TimeoutError):
         return "ASYNCIO_TIMEOUT" if msg else "TIMEOUT", msg
     if "Timeout" in msg:
