@@ -111,7 +111,7 @@ class ClientAPI:
                 ),
                 cfg=browser_cfg,
             )
-        except Exception as e:
+        except BaseException as e:
             result = False
             print(f"[{netloc}] error: {e}")
             if crawl_cfg.failed_sites_path:
@@ -205,26 +205,35 @@ class ClientAPI:
         )
 
 
-def _write_failed_site(path: str, site: Site, error: Exception) -> None:
+def _write_failed_site(path: str, site: Site, error: BaseException) -> None:
     with open(path, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
+        reason, msg = get_error_reason(error)
         writer.writerow(
             [
                 site.rank,
                 site.url,
-                get_error_reason(error),
+                reason,
+                msg,
             ]
         )
 
 
-def get_error_reason(error: Exception) -> str:
+def get_error_reason(error: BaseException) -> tuple[str, str]:
     msg = str(error)
 
     match = re.search(r"net::(ERR_[A-Z_]+)", msg)
+
+    msg = msg.strip()[:100].replace("\n", " ")
     if match:
-        return match.group(1)
+        return match.group(1), "network error"
 
+    # asyncio.TimeoutError carries our descriptive label as its message
+    # (e.g. "TIMEOUT:browser_setup", "TIMEOUT:Network.getAllCookies").
+    # Playwright's own TimeoutError shows up as "Timeout NNNms exceeded" in msg.
+    if isinstance(error, asyncio.TimeoutError):
+        return "ASYNCIO_TIMEOUT" if msg else "TIMEOUT", msg
     if "Timeout" in msg:
-        return "TIMEOUT"
+        return "TIMEOUT", msg
 
-    return type(error).__name__
+    return type(error).__name__, msg
