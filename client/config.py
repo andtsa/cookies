@@ -62,3 +62,11 @@ class CrawlConfig:
     overwrite: bool = False
     failed_sites_path: Optional[str] = "failed_sites.csv"
     sleep_between_ms: int = 0
+    output_dir: str = "cookies_data/Netherlands"
+
+
+@dataclass
+class Site:
+    url: str
+    rank: int
+    category: str | None

@@ -10,9 +10,12 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from classifier.sensitive_classifier import SensitiveClassifier
 from client.api import Browser, ClientAPI
-from client.config import BrowserConfig, CrawlConfig
+from client.config import BrowserConfig, CrawlConfig, Site
 from client.trackers import Detections, TrackerList
 from client.trackers.matcher import EasyPrivacyMatcher
+
+# an item in the work queue (site, browser_cfg)
+type Item = tuple[Site, BrowserConfig] | None
 
 
 def main():
@@ -41,6 +44,16 @@ def main():
             f"Choices: {', '.join(b.value for b in Browser)}. "
             "Default: chromium. Example: --browsers chromium webkit firefox"
         ),
+    )
+    parser.add_argument(
+        "--country",
+        default="Netherlands",
+        help="From which country is the crawl running (default: Netherlands).",
+    )
+    parser.add_argument(
+        "--category",
+        default="popular",
+        help="Category of the site (default: popular).",
     )
     parser.add_argument(
         "--timeout-ms",
@@ -83,8 +96,7 @@ def main():
     )
     parser.add_argument(
         "--failed-sites",
-        metavar="FILE",
-        default=None,
+        default="failed_sites.csv",
         help="Append failed domain names to this file (default: disabled).",
     )
     parser.add_argument(
@@ -168,13 +180,12 @@ def main():
         overwrite=args.overwrite,
         failed_sites_path=args.failed_sites,
         sleep_between_ms=args.sleep_between_ms,
+        output_dir=f"{args.output_dir}/{args.country}",
     )
-
-    batch_size = args.batch_size or 20
 
     # auto-resume: if --skip-first was not explicitly set and a progress file
     # exists in the output directory, pick up from where the last run stopped
-    progress_file = os.path.join(args.output_dir, "progress.txt")
+    progress_file = os.path.join(crawl_cfg.output_dir, "progress.txt")
     if args.skip_first:
         start_index = args.skip_first
     elif os.path.exists(progress_file):
@@ -187,11 +198,11 @@ def main():
         start_index = 0
 
     async def run_all():
+        from playwright._impl._errors import Error as PlaywrightError
+
         loop = asyncio.get_running_loop()
         main_task = asyncio.current_task()
 
-        # Treat SIGTERM the same as Ctrl-C, cancel the main task so asyncio
-        # can clean up running tasks before the process exits
         def _on_sigterm():
             print("\n[Crawler] Received SIGTERM, cancelling crawl...")
             if main_task:
@@ -199,62 +210,128 @@ def main():
 
         loop.add_signal_handler(signal.SIGTERM, _on_sigterm)
 
+        _original_handler = loop.get_exception_handler()
+
+        def _suppress_playwright_channel_errors(
+            loop: asyncio.AbstractEventLoop, context: dict
+        ) -> None:
+            if isinstance(context.get("exception"), PlaywrightError):
+                return
+            (
+                _original_handler(loop, context)
+                if _original_handler
+                else loop.default_exception_handler(context)
+            )
+
+        loop.set_exception_handler(_suppress_playwright_channel_errors)
+
+        browser_cfgs = [
+            BrowserConfig(
+                headless=args.headless,
+                timeout_ms=args.timeout_ms,
+                wait_time_ms=args.wait_time_ms,
+                tracker_list=tracker_list,
+                matcher=matcher,
+                intercept_cookie_reads=args.cookie_reads,
+                browser_type=browser,
+                classifier=classifier,
+            )
+            for browser in browsers
+        ]
+
+        semaphore = asyncio.Semaphore(concurrency)
+        # completed_url_count counts distinct URLs fully processed (all browsers)
+        counter: list[int] = [0]
+        counter_lock = asyncio.Lock()
+
+        work_queue: asyncio.Queue[Item] = asyncio.Queue(maxsize=args.batch_size * 2)
+
+        async def worker() -> None:
+            while True:
+                item = await work_queue.get()
+                if item is None:  # end-of-stream sentinel
+                    work_queue.task_done()
+                    return
+                site, cfg = item
+                try:
+                    async with semaphore:
+                        await ClientAPI.process_url(site, cfg, crawl_cfg)
+                except asyncio.CancelledError:
+                    raise
+                finally:
+                    work_queue.task_done()
+
+                if cfg is browser_cfgs[-1]:
+                    async with counter_lock:
+                        counter[0] += 1
+                        n = counter[0]
+                    if n % args.batch_size == 0:
+                        os.makedirs(args.output_dir, exist_ok=True)
+                        with open(progress_file, "w") as _pf:
+                            _pf.write(str(start_index + n))
+                        now = datetime.now().strftime('%H:%M')
+                        print(f"\n  [Crawler] {n} sites done (checkpoint written) [{now}]")
+
+        worker_tasks = [asyncio.create_task(worker()) for _ in range(concurrency)]
+
+        crawl_start_t = time.time()
+        print(f"\n{'='*60}")
+        print(f"  [Crawler] Starting from site {start_index + 1}")
+        print(f"            -> {datetime.now().strftime('%H:%M')}")
+        print(f"{'='*60}\n")
+
         processed_sites = start_index
         try:
-            for df in pd.read_csv(
-                args.input,
-                header=0,
-                names=["rank", "url"],
-                skiprows=start_index,
-                chunksize=batch_size,
-                nrows=crawl_cfg.limit,
-            ):
-                batch_start_t = time.time()
-                print(f"\n{'='*60}")
-                print(
-                    f"  [Crawler] Processing sites {processed_sites + 1} to {processed_sites + len(df)}"
-                )
-                urls = df["url"].tolist()
-                start_time = datetime.now().strftime("%H:%M")
-                print(f"            -> from `{urls[0]}` until `{urls[-1]}`")
-                print(f"            -> start time {start_time}")
-                print(f"{'='*60}\n")
-                for browser in browsers:
-                    if len(browsers) > 1:
-                        print(f"    [Browser={browser.value}]")
+            try:
+                for df in pd.read_csv(
+                    args.input,
+                    header=0,
+                    names=["rank", "url"],
+                    skiprows=start_index,
+                    chunksize=args.batch_size,
+                    nrows=crawl_cfg.limit,
+                ):
+                    for row in df.itertuples():
+                        url = row.url
+                        rank = row.rank
+                        for cfg in browser_cfgs:
+                            await work_queue.put(
+                                (Site(url=url, rank=rank, category=args.category), cfg)
+                            )
+            except asyncio.CancelledError:
+                # drain pending items so task_done() accounting stays consistent
+                while not work_queue.empty():
+                    try:
+                        work_queue.get_nowait()
+                        work_queue.task_done()
+                    except asyncio.QueueEmpty:
+                        break
+                raise
+            finally:
+                # always send sentinels so workers can exit cleanly
+                for _ in range(concurrency):
+                    try:
+                        work_queue.put_nowait(None)
+                    except asyncio.QueueFull:
+                        pass
 
-                    browser_cfg = BrowserConfig(
-                        headless=args.headless,
-                        timeout_ms=args.timeout_ms,
-                        wait_time_ms=args.wait_time_ms,
-                        tracker_list=tracker_list,
-                        matcher=matcher,
-                        intercept_cookie_reads=args.cookie_reads,
-                        browser_type=browser,
-                        classifier=classifier,
-                    )
+            await asyncio.gather(*worker_tasks, return_exceptions=True)
 
-                    await ClientAPI.process_batch(
-                        websites=df["url"].tolist(),
-                        output_dir=args.output_dir,
-                        browser_cfg=browser_cfg,
-                        crawl_cfg=crawl_cfg,
-                    )
-                print(f"\n{'='*60}")
-                print(
-                    f"  [Crawler] finished batch {processed_sites // batch_size} in {time.time() - batch_start_t}s"
-                )
-                processed_sites += len(df)
+            elapsed = time.time() - crawl_start_t
+            processed_sites = start_index + counter[0]
+            print(f"\n{'='*60}")
+            print(f"  [Crawler] finished {counter[0]} sites in {elapsed:.1f}s")
+            print(f"{'='*60}\n")
 
-                # persist progress after every completed batch so a restart
-                # can resume from here without manual --skip-first
-                os.makedirs(args.output_dir, exist_ok=True)
-                with open(progress_file, "w") as _pf:
-                    _pf.write(str(processed_sites))
+            # final checkpoint
+            os.makedirs(args.output_dir, exist_ok=True)
+            with open(progress_file, "w") as _pf:
+                _pf.write(str(processed_sites))
 
         except asyncio.CancelledError:
+            processed_sites = start_index + counter[0]
             print(
-                f"[Crawler] Crawl cancelled at site {processed_sites}. Progress saved."
+                f"[Crawler] Crawl cancelled at site ~{processed_sites}. Progress saved."
             )
             raise
         finally:

@@ -4,7 +4,7 @@ import tldextract
 from playwright.async_api import async_playwright
 
 from .client import Client
-from .config import BrowserConfig
+from .config import BrowserConfig, Site
 from .output import Outfile, OutputFormat
 from .util import _parse_set_cookie_name
 
@@ -50,7 +50,7 @@ class ChromiumClient(Client):
         assert self.page is not None, "Page not initialized"
         await self.page.goto(url, wait_until="load", timeout=self.cfg.timeout_ms)
 
-    async def _on_close_get_cookies_snapshot(self, output: Outfile) -> None:
+    async def _on_close_get_cookies_snapshot(self, output: Outfile, site: Site) -> None:
         assert self.context is not None, "Context not initialized"
         assert self.client is not None and self.browser is not None, "Not initialized"
 
@@ -65,6 +65,7 @@ class ChromiumClient(Client):
             sensitivity_result = None
 
         OutputFormat.process_and_save(
+            site,
             cookies,
             self._cookie_set_context,
             self._request_log,
