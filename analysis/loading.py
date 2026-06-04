@@ -1,17 +1,14 @@
 """
 analysis/loading.py
 -------------------
-Filesystem walking, path-context decoding, and the website-list join.
+Filesystem walking, path-context decoding, and the optional website-list join.
 
-Crawler output layout is ``{data_dir}/{country}/{browser}/{hexprefix}/{slug}.json``
-(e.g. ``cookies_data/Netherlands/chromium/3e/pinterest_com.json``). An older
-pre-country layout ``{data_dir}/{browser}/{hexprefix}/{slug}.json`` is tolerated
-(country becomes ``"unknown"``).
+Crawler output layout: ``{data_dir}/{country}/{browser}/{hexprefix}/{slug}.json``
+(e.g. ``cookies_data/Netherlands/chromium/3e/pinterest_com.json``).
 
-Rank and category are NOT in the crawler JSON (see the plan's "crawler gaps"):
-they are recovered here by joining each site's registrable domain against the
-website-list CSVs (``rank,url``). This join is the temporary stand-in until the
-crawler records rank/category directly.
+Rank and category come from the ``crawl_context`` block embedded in each JSON file
+by the crawler. The optional ``load_site_lists`` helper can supplement or override
+these values from external CSVs when needed.
 """
 
 from __future__ import annotations
@@ -25,10 +22,6 @@ from pathlib import Path
 from .enrich import registered_domain
 from .records import SiteRaw
 
-# Known Playwright engines (client/config.py Browser enum). Used to recognise a
-# pre-country layout where the first path component is already a browser.
-BROWSERS = {"chromium", "firefox", "webkit"}
-
 
 def site_paths(data_dir: str | os.PathLike) -> list[Path]:
     """All site JSON files under ``data_dir`` (recursive, sorted)."""
@@ -39,22 +32,13 @@ def site_paths(data_dir: str | os.PathLike) -> list[Path]:
 def path_context(path: Path, data_dir: str | os.PathLike) -> tuple[str, str, str]:
     """Decode ``(country, browser, domain_slug)`` from a site path.
 
-    Falls back gracefully: a 3-component relative path (browser/hex/slug) yields
-    ``country="unknown"``; anything shallower yields ``"unknown"`` for the
-    missing levels.
+    Expects the canonical layout ``{country}/{browser}/{hexprefix}/{slug}.json``.
+    Returns ``"unknown"`` for country/browser when the path is shorter.
     """
-    rel = Path(path).relative_to(Path(data_dir))
-    parts = rel.parts
+    parts = Path(path).relative_to(Path(data_dir)).parts
     slug = Path(path).stem
-    if len(parts) >= 4:
-        country, browser = parts[0], parts[1]
-    elif len(parts) == 3 and parts[0] in BROWSERS:
-        country, browser = "unknown", parts[0]
-    elif len(parts) == 3:
-        country, browser = parts[0], parts[1]
-    else:
-        country = "unknown"
-        browser = next((p for p in parts if p in BROWSERS), "unknown")
+    country = parts[0] if len(parts) >= 4 else "unknown"
+    browser = parts[1] if len(parts) >= 4 else "unknown"
     return country, browser, slug
 
 
@@ -75,7 +59,7 @@ def load_site_lists(site_lists: dict[str, str]) -> dict[str, tuple[str, int]]:
     ``site_lists`` maps a category label to a ``rank,url`` CSV path. When a
     domain appears in several lists the *first* configured list wins (so callers
     put the more specific list, e.g. ``medical``, first). Missing files are
-    skipped silently — the join just yields fewer matches.
+    skipped silently.
     """
     mapping: dict[str, tuple[str, int]] = {}
     for category, csv_path in (site_lists or {}).items():

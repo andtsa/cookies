@@ -50,7 +50,6 @@ class SimplePlaywrightClient(Client):
             sensitivity_result = None
 
         OutputFormat.process_and_save(
-            site,
             cookies,
             self._cookie_set_context,
             self._request_log,

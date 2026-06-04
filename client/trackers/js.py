@@ -122,6 +122,18 @@ class InterceptorSession:
         return names
 
     def to_dict(self) -> dict[str, Any]:
+        # Deduplicate reads on (frame_url, cookies): keep the first occurrence of
+        # each unique cookie-jar snapshot. A page may fire thousands of identical
+        # read events (e.g. a consent library polling document.cookie in a tight
+        # loop); only the distinct states matter for analysis.
+        seen: set[tuple[str, str]] = set()
+        unique_reads = []
+        for r in self.reads:
+            key = (r.frame_url, r.cookies)
+            if key not in seen:
+                seen.add(key)
+                unique_reads.append(r)
+
         return {
             "reads": [
                 {
@@ -130,7 +142,7 @@ class InterceptorSession:
                     "stack": r.stack,
                     "ts": r.ts,
                 }
-                for r in self.reads
+                for r in unique_reads
             ],
             "writes": [
                 {

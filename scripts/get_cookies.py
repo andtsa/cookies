@@ -88,6 +88,12 @@ def main():
         help="Number of websites to process simultaneously (default: 1).",
     )
     parser.add_argument(
+        "--force-concurrency",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Force crawler to use specified concurrency despite cpu core check.",
+    )
+    parser.add_argument(
         "--overwrite",
         "-O",
         action=argparse.BooleanOptionalAction,
@@ -153,13 +159,18 @@ def main():
     concurrency = args.concurrency or 1
     cores = os.cpu_count()
     if cores and concurrency > cores:
-        print(
-            f"Concurrency ({concurrency}) exceeds available cores ({cores}), setting to {cores - 1} to ensure stability"
-        )
-        # if laptop is left overnight and it enters power saving mode,
-        # the switching between the crawling task and the OS might take so long
-        # that the laptop's hardware watchdog reboots it (happened to me)
-        concurrency = cores - 1
+        if not args.force_concurrency:
+            print(
+                f"Concurrency ({concurrency}) exceeds available cores ({cores}), setting to {cores - 1} to ensure stability"
+            )
+            # if laptop is left overnight and it enters power saving mode,
+            # the switching between the crawling task and the OS might take so long
+            # that the laptop's hardware watchdog reboots it (happened to me)
+            concurrency = cores - 1
+        else:
+            print(
+                f"Setting concurrency to {concurrency} despite system having {cores} cores."
+            )
 
     tracker_list = None
     matcher = None
@@ -181,6 +192,7 @@ def main():
         failed_sites_path=args.failed_sites,
         sleep_between_ms=args.sleep_between_ms,
         output_dir=f"{args.output_dir}/{args.country}",
+        country=args.country,
     )
 
     # auto-resume: if --skip-first was not explicitly set and a progress file
@@ -269,8 +281,10 @@ def main():
                         os.makedirs(args.output_dir, exist_ok=True)
                         with open(progress_file, "w") as _pf:
                             _pf.write(str(start_index + n))
-                        now = datetime.now().strftime('%H:%M')
-                        print(f"\n  [Crawler] {n} sites done (checkpoint written) [{now}]")
+                        now = datetime.now().strftime("%H:%M")
+                        print(
+                            f"\n  [Crawler] {n} sites done (checkpoint written) [{now}]"
+                        )
 
         worker_tasks = [asyncio.create_task(worker()) for _ in range(concurrency)]
 

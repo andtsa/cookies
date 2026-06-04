@@ -172,13 +172,12 @@ class CookieDataset:
     def _tracker_fields(self, cookie: dict) -> tuple[bool, list[str], str | None]:
         """Return ``(is_tracker, lists, matched_domain)`` for a cookie.
 
-        Prefers the crawler-stored ``cookie["tracker"]`` block; recomputes via
-        the tracker lists only when missing or ``recompute_trackers`` is set.
+        Reads flat ``tracker_lists`` / ``tracker_provider`` fields written by the
+        crawler. Falls back to live detection only when ``recompute_trackers`` is set.
         """
-        stored = cookie.get("tracker")
-        if stored and not self.recompute_trackers:
-            lists = stored.get("lists") or []
-            return bool(lists), list(lists), stored.get("matched_domain")
+        if not self.recompute_trackers:
+            lists = list(cookie.get("tracker_lists") or [])
+            return bool(lists), lists, cookie.get("tracker_provider")
         det = self._tracker_list.is_tracker(cookie)
         if det is None:
             return False, [], None
@@ -238,12 +237,16 @@ class CookieDataset:
             target_url = site.target_url
             site_domain = registered_domain(target_url)
             target_host = target_url.split("//")[-1].split("/")[0]
-            category, rank = self._site_list_map.get(site_domain, ("unknown", None))
+            ctx = site.data.get("crawl_context") or {}
+            country = ctx.get("country") or site.country
+            browser = ctx.get("browser") or site.browser
+            rank = ctx.get("rank")
+            category = ctx.get("category") or "unknown"
+
             for c in site.cookies:
                 name = c.get("name", "")
                 value = c.get("value", "") or ""
-                source = c.get("source") or {}
-                http = source.get("http") or {}
+                setter_url = c.get("setter_url")
                 metrics = entropy_metrics(value)
                 is_tracker, lists, provider = self._tracker_fields(c)
                 ctype = c.get("cookie_type", "session")
@@ -251,8 +254,8 @@ class CookieDataset:
                 rows.append(
                     {
                         # context
-                        "country": site.country,
-                        "browser": site.browser,
+                        "country": country,
+                        "browser": browser,
                         "category": category,
                         "rank": rank,
                         "rank_tier": _rank_tier(rank),
@@ -273,12 +276,12 @@ class CookieDataset:
                         "lifetime_days": c.get("lifetime_days"),
                         # derived: party / source
                         "party_type": party_type(target_host, c.get("domain", "")),
-                        "set_by_type": source.get("type"),
-                        "setter_url": http.get("url"),
-                        "set_by_initiator": http.get("initiator"),
-                        "set_by_third_party": http.get("third_party"),
-                        "set_by_ep_matched": http.get("easyprivacy_matched", False),
-                        "setter_domain": registered_domain(http.get("url", "")) or None,
+                        "set_by_type": c.get("setter_type"),
+                        "setter_url": setter_url,
+                        "set_by_initiator": c.get("setter_initiator"),
+                        "set_by_third_party": c.get("setter_third_party"),
+                        "set_by_ep_matched": bool(c.get("setter_ep_matched", False)),
+                        "setter_domain": registered_domain(setter_url or "") or None,
                         # derived: entropy / identity
                         "entropy": metrics["entropy"],
                         "total_bits": metrics["total_bits"],
@@ -320,22 +323,25 @@ class CookieDataset:
             else {}
         )
         for site in self._raw_sites:
+            ctx = site.data.get("crawl_context") or {}
+            country = ctx.get("country") or site.country
+            browser = ctx.get("browser") or site.browser
+            rank = ctx.get("rank")
+            category = ctx.get("category") or "unknown"
             summary = site.data.get("summary", {}) or {}
             sc = summary.get("cookies", {}) or {}
             sr = summary.get("requests", {}) or {}
             sj = summary.get("js", {}) or {}
             target_url = site.target_url
-            sub = cookies_by_site.get((site.country, site.browser, site.domain))
+            # Key must match what _build_cookies used (both read from crawl_context).
+            sub = cookies_by_site.get((country, browser, site.domain))
             persistent = (
                 sub[~sub["session"]] if sub is not None and not sub.empty else None
             )
-            category, rank = self._site_list_map.get(
-                registered_domain(target_url), ("unknown", None)
-            )
             rows.append(
                 {
-                    "country": site.country,
-                    "browser": site.browser,
+                    "country": country,
+                    "browser": browser,
                     "category": category,
                     "rank": rank,
                     "rank_tier": _rank_tier(rank),
