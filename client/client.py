@@ -1,6 +1,6 @@
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Callable, Optional, cast
+from typing import Optional, cast
 from urllib.parse import urlparse
 
 import psutil
@@ -10,7 +10,7 @@ import tldextract
 
 from client.output import Outfile
 
-from .config import BrowserConfig
+from .config import BrowserConfig, Site
 from .trackers.js import CookieReadInterceptor
 
 
@@ -46,19 +46,17 @@ class Client(ABC):
 
     async def visit_page(
         self,
-        url: str,
-        behavior: Callable,
-        on_close: Callable,
+        site: Site,
         output: Outfile,
     ) -> None:
         """setup, navigate, behavior, on_close"""
-        self._url = url
+        self._url = site.url
         try:
-            await self._setup(url=url)
+            await self._setup(url=site.url)
             self._record_node_pid()
-            await self._navigate_to_page(url)
-            await behavior(self)
-            await on_close(self, output)
+            await self._navigate_to_page(site.url)
+            await self._behavior_non_interactive()
+            await self._on_close_get_cookies_snapshot(output, site)
         except Exception:
             await self._on_close_empty()
             raise
@@ -86,7 +84,7 @@ class Client(ABC):
             self._cookie_read_interceptor = CookieReadInterceptor(visited_domain=domain)
             await self._cookie_read_interceptor.attach(self.page)
 
-    async def _teardown(self, timeout: float = 15.0) -> None:
+    async def _teardown(self) -> None:
         """Close browser and stop Playwright after a successful snapshot.
 
         Both browser.close() and playwright.stop() can hang indefinitely if the
@@ -96,6 +94,7 @@ class Client(ABC):
 
         this method is idempotent
         """
+        timeout = self.cfg.timeout_ms / 1000.0
         if self._is_closed:
             return
         self._is_closed = True
@@ -130,6 +129,13 @@ class Client(ABC):
                         pass
                     except psutil.Error:
                         pass
+                    try:
+                        await asyncio.wait_for(
+                            cast(Playwright, self.playwright).stop(), timeout=2.0
+                        )
+                    except Exception:
+                        pass
+                    self.playwright = None
             except PlaywrightError:
                 pass
 
@@ -154,5 +160,5 @@ class Client(ABC):
         """Navigate to url, honouring cfg.timeout_ms."""
 
     @abstractmethod
-    async def _on_close_get_cookies_snapshot(self, output: Outfile) -> None:
+    async def _on_close_get_cookies_snapshot(self, output: Outfile, site: Site) -> None:
         """Collect cookies, save to JSON, then call _teardown()."""
