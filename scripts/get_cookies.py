@@ -4,15 +4,18 @@ import os
 import signal
 import sys
 import pandas as pd
+import psutil
 import time
 from datetime import datetime
 
+sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from classifier.sensitive_classifier import SensitiveClassifier
 from client.api import Browser, ClientAPI
 from client.config import BrowserConfig, CrawlConfig, Site
 from client.trackers import Detections, TrackerList
 from client.trackers.matcher import EasyPrivacyMatcher
+from crawl_stats import CrawlStats
 
 # an item in the work queue (site, browser_cfg)
 type Item = tuple[Site, BrowserConfig] | None
@@ -156,21 +159,37 @@ def main():
     args = parser.parse_args()
     browsers = [Browser(b) for b in args.browsers]
 
+    # auto-tune concurrency when the user hasn't explicitly set it.
+    # The workload is I/O-bound (waiting for pages to load), so RAM is the
+    # real constraint — not CPU cores.
+    concurrency_explicit = any(a in sys.argv for a in ("--concurrency", "-c"))
+    if not concurrency_explicit and not args.force_concurrency:
+        cores = os.cpu_count() or 1
+        cpu_based = max(1, cores - 1)
+        mem = psutil.virtual_memory()
+        # each concurrency slot = 1 browser process; add headroom for multi-browser overlap
+        mb_per_slot = 400 if len(args.browsers) == 1 else 500
+        mem_based = max(1, int(mem.available / (mb_per_slot * 1024 * 1024)))
+        # CPU cores anchor the default (Chromium is not purely I/O-bound — JS
+        # execution and scheduler overhead make cores - 1 a reliable heuristic);
+        # RAM caps it as a safety check on memory-constrained machines
+        suggested = min(cpu_based, mem_based)
+        print(
+            f"[Crawler] Auto-tune: cpu_based={cpu_based}, mem_based={mem_based} "
+            f"({mem.available // 1024 // 1024} MB avail / {mb_per_slot} MB per slot) "
+            f"-> concurrency={suggested}"
+        )
+        args.concurrency = suggested
+
     concurrency = args.concurrency or 1
     cores = os.cpu_count()
-    if cores and concurrency > cores:
-        if not args.force_concurrency:
-            print(
-                f"Concurrency ({concurrency}) exceeds available cores ({cores}), setting to {cores - 1} to ensure stability"
-            )
-            # if laptop is left overnight and it enters power saving mode,
-            # the switching between the crawling task and the OS might take so long
-            # that the laptop's hardware watchdog reboots it (happened to me)
-            concurrency = cores - 1
-        else:
-            print(
-                f"Setting concurrency to {concurrency} despite system having {cores} cores."
-            )
+    if cores and concurrency > cores and not args.force_concurrency:
+        # warn but don't cap: page visits are I/O-bound so more workers than
+        # cores is normal and beneficial. Use --force-concurrency to silence.
+        print(
+            f"[Crawler] Note: concurrency ({concurrency}) > cores ({cores}). "
+            f"This is fine for I/O-bound crawling. Pass --force-concurrency to silence."
+        )
 
     tracker_list = None
     matcher = None
@@ -252,11 +271,105 @@ def main():
         ]
 
         semaphore = asyncio.Semaphore(concurrency)
-        # completed_url_count counts distinct URLs fully processed (all browsers)
-        counter: list[int] = [0]
-        counter_lock = asyncio.Lock()
+        stats = CrawlStats(start_index=start_index, concurrency=concurrency)
+        stats_file = os.path.join(crawl_cfg.output_dir, "stats.json")
+        total_sites = args.limit or (
+            1000000 if "list_websites_1M.csv" in args.input else None
+        )
 
-        work_queue: asyncio.Queue[Item] = asyncio.Queue(maxsize=args.batch_size * 2)
+        # Upper bound for concurrency tuning: RAM-based limit.
+        # Pre-spawn this many workers so tuning can increase concurrency
+        # immediately by releasing semaphore slots into an already-waiting pool.
+        mb_per_slot = 400 if len(browser_cfgs) == 1 else 500
+        max_concurrency = max(
+            concurrency,
+            int(psutil.virtual_memory().available / (mb_per_slot * 1024 * 1024)),
+        )
+
+        # held[0]: net slots held by the monitor (>0 = reduced, <0 = increased).
+        # Exposed as a list so the outer finally can release them without a closure.
+        held: list[int] = [0]
+
+        # Queue large enough to buffer normal work plus max_concurrency sentinels.
+        work_queue: asyncio.Queue[Item] = asyncio.Queue(
+            maxsize=max(args.batch_size * 2, max_concurrency * 2)
+        )
+
+        async def _throttle_monitor() -> None:
+            psutil.cpu_percent()  # prime the cache (first call always returns 0.0)
+            await asyncio.sleep(5)
+            last_spm = 0.0
+            last_was_increase = False
+            tick = 0
+            TUNE_EVERY = 24  # 24 × 5 s = 120 s between tuning decisions
+
+            while True:
+                await asyncio.sleep(5)
+                tick += 1
+
+                try:
+                    mem_mb = psutil.virtual_memory().available / (1024 * 1024)
+                    cpu = psutil.cpu_percent()
+                except Exception:
+                    continue
+
+                effective = concurrency - held[0]
+                under_pressure = mem_mb < 512 or cpu > 90.0
+
+                # fast path: react to pressure immediately
+                if under_pressure and effective > 1:
+                    await semaphore.acquire()
+                    held[0] += 1
+                    effective -= 1
+                    stats.concurrency = effective
+                    stats.active_throttle = True
+                    last_was_increase = False
+                    print(
+                        f"[Tune] Pressure (mem={mem_mb:.0f} MB, cpu={cpu:.0f}%)"
+                        f" → concurrency={effective}"
+                    )
+                    continue  # skip tuning tick while under pressure
+
+                if not under_pressure and stats.active_throttle:
+                    stats.active_throttle = False
+
+                # slow path: hill-climb every TUNE_EVERY ticks
+                if tick % TUNE_EVERY != 0:
+                    continue
+
+                current_spm = stats.sites_per_min()
+                effective = concurrency - held[0]
+
+                if last_was_increase and current_spm < last_spm * 0.95:
+                    # throughput dropped after an increase → undo it
+                    await semaphore.acquire()
+                    held[0] += 1
+                    effective -= 1
+                    stats.concurrency = effective
+                    print(
+                        f"[Tune] {current_spm:.1f} spm < {last_spm:.1f} after increase"
+                        f" → concurrency={effective}"
+                    )
+                    last_was_increase = False
+                elif effective < max_concurrency:
+                    # throughput stable or improved → try one step higher
+                    semaphore.release()
+                    held[0] -= 1
+                    effective += 1
+                    stats.concurrency = effective
+                    print(
+                        f"[Tune] {current_spm:.1f} spm, trying concurrency={effective}"
+                    )
+                    last_was_increase = True
+                else:
+                    last_was_increase = False
+
+                last_spm = current_spm
+
+        async def _heartbeat() -> None:
+            while True:
+                await asyncio.sleep(60)
+                print(f"  {stats.checkpoint_line()}")
 
         async def worker() -> None:
             while True:
@@ -267,31 +380,44 @@ def main():
                 site, cfg = item
                 try:
                     async with semaphore:
-                        await ClientAPI.process_url(site, cfg, crawl_cfg)
+                        t0 = time.monotonic()
+                        result = await ClientAPI.process_url(site, cfg, crawl_cfg)
+                        elapsed = time.monotonic() - t0
+                    if result is None:  # skipped (already collected)
+                        await stats.record_skip()
+                    elif result is False:  # visit failed
+                        await stats.record_visit(elapsed, success=False)
+                    else:  # success
+                        await stats.record_visit(elapsed, success=True)
                 except asyncio.CancelledError:
                     raise
                 finally:
                     work_queue.task_done()
 
                 if cfg is browser_cfgs[-1]:
-                    async with counter_lock:
-                        counter[0] += 1
-                        n = counter[0]
+                    n = await stats.record_completion()
                     if n % args.batch_size == 0:
-                        os.makedirs(args.output_dir, exist_ok=True)
+                        os.makedirs(crawl_cfg.output_dir, exist_ok=True)
                         with open(progress_file, "w") as _pf:
                             _pf.write(str(start_index + n))
-                        now = datetime.now().strftime("%H:%M")
-                        print(
-                            f"\n  [Crawler] {n} sites done (checkpoint written) [{now}]"
-                        )
+                        stats.write(stats_file, total_sites=total_sites)
+                        print(f"\n  {stats.checkpoint_line()}")
 
-        worker_tasks = [asyncio.create_task(worker()) for _ in range(concurrency)]
+        throttle_task = asyncio.create_task(_throttle_monitor())
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        # Spawn max_concurrency workers: idle ones wait on the queue/semaphore
+        # and are picked up immediately when the tuner opens a new slot.
+        worker_tasks = [asyncio.create_task(worker()) for _ in range(max_concurrency)]
 
         crawl_start_t = time.time()
         print(f"\n{'='*60}")
-        print(f"  [Crawler] Starting from site {start_index + 1}")
+        print(
+            f"  [Crawler] Starting from site {start_index + 1}"
+            f"  |  concurrency={concurrency} (tuning up to {max_concurrency})"
+        )
         print(f"            -> {datetime.now().strftime('%H:%M')}")
+        if total_sites:
+            print(f"            -> ~{total_sites - start_index:,} sites to go")
         print(f"{'='*60}\n")
 
         processed_sites = start_index
@@ -322,8 +448,8 @@ def main():
                         break
                 raise
             finally:
-                # always send sentinels so workers can exit cleanly
-                for _ in range(concurrency):
+                # one sentinel per worker so every worker exits cleanly
+                for _ in range(max_concurrency):
                     try:
                         work_queue.put_nowait(None)
                     except asyncio.QueueFull:
@@ -332,23 +458,31 @@ def main():
             await asyncio.gather(*worker_tasks, return_exceptions=True)
 
             elapsed = time.time() - crawl_start_t
-            processed_sites = start_index + counter[0]
+            processed_sites = start_index + stats.completed
             print(f"\n{'='*60}")
-            print(f"  [Crawler] finished {counter[0]} sites in {elapsed:.1f}s")
+            print(f"  [Crawler] finished {stats.completed} sites in {elapsed:.1f}s")
             print(f"{'='*60}\n")
 
             # final checkpoint
-            os.makedirs(args.output_dir, exist_ok=True)
+            os.makedirs(crawl_cfg.output_dir, exist_ok=True)
             with open(progress_file, "w") as _pf:
                 _pf.write(str(processed_sites))
+            stats.write(stats_file, total_sites=total_sites)
 
         except asyncio.CancelledError:
-            processed_sites = start_index + counter[0]
+            processed_sites = start_index + stats.completed
             print(
                 f"[Crawler] Crawl cancelled at site ~{processed_sites}. Progress saved."
             )
             raise
         finally:
+            throttle_task.cancel()
+            heartbeat_task.cancel()
+            # suppress CancelledError from background tasks
+            await asyncio.gather(throttle_task, heartbeat_task, return_exceptions=True)
+            # release any slots held by the monitor so blocked workers can exit
+            for _ in range(max(0, held[0])):
+                semaphore.release()
             loop.remove_signal_handler(signal.SIGTERM)
 
     asyncio.run(run_all())
