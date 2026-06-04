@@ -1,3 +1,5 @@
+import asyncio
+
 import tldextract
 from playwright.async_api import async_playwright
 
@@ -18,12 +20,20 @@ class SimplePlaywrightClient(Client):
     # engine-specific hooks
 
     async def _setup(self, url: str) -> None:
-        self.playwright = await async_playwright().start()
-        launcher = getattr(self.playwright, self.cfg.browser_type.value)
-        self.browser = await launcher.launch(headless=self.cfg.headless)
-        self.context = await self.browser.new_context()
-        self.page = await self.context.new_page()
-        await self.context.clear_cookies()
+        t = self.cfg.timeout_ms / 1000.0
+        try:
+            self.playwright = await asyncio.wait_for(
+                async_playwright().start(), timeout=t
+            )
+            launcher = getattr(self.playwright, self.cfg.browser_type.value)
+            self.browser = await asyncio.wait_for(
+                launcher.launch(headless=self.cfg.headless), timeout=t
+            )
+            self.context = await asyncio.wait_for(self.browser.new_context(), timeout=t)
+            self.page = await asyncio.wait_for(self.context.new_page(), timeout=t)
+            await asyncio.wait_for(self.context.clear_cookies(), timeout=t)
+        except asyncio.TimeoutError:
+            raise asyncio.TimeoutError("browser_setup") from None
 
         self.page.on("request", self._on_request)
         self.page.on("response", self._on_response)
@@ -40,12 +50,18 @@ class SimplePlaywrightClient(Client):
             self.browser is not None and self.playwright is not None
         ), "Not initialized"
 
-        cookies = await self.context.cookies()
+        t = self.cfg.timeout_ms / 1000.0
+        try:
+            cookies = await asyncio.wait_for(self.context.cookies(), timeout=t)
+        except asyncio.TimeoutError:
+            raise asyncio.TimeoutError("context.cookies") from None
 
         if self.cfg.classifier:
-            sensitivity_result = self.cfg.classifier.classify_html(
-                await self.page.content()
-            )
+            try:
+                html = await asyncio.wait_for(self.page.content(), timeout=t)
+            except asyncio.TimeoutError:
+                raise asyncio.TimeoutError("page.content") from None
+            sensitivity_result = self.cfg.classifier.classify_html(html)
         else:
             sensitivity_result = None
 

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional
 
 import tldextract
@@ -26,19 +27,31 @@ class ChromiumClient(Client):
         self.executable_path = executable_path
 
     async def _setup(self, url: str) -> None:
-        self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(
-            headless=self.cfg.headless,
-            channel=self.channel,
-            executable_path=self.executable_path,
-        )
-        self.context = await self.browser.new_context()
-        self.page = await self.context.new_page()
-        self.client = await self.context.new_cdp_session(self.page)
-
-        await self.client.send("Page.enable")
-        await self.client.send("Network.enable")
-        await self.client.send("Network.clearBrowserCookies")
+        t = self.cfg.timeout_ms / 1000.0
+        try:
+            self.playwright = await asyncio.wait_for(
+                async_playwright().start(), timeout=t
+            )
+            self.browser = await asyncio.wait_for(
+                self.playwright.chromium.launch(
+                    headless=self.cfg.headless,
+                    channel=self.channel,
+                    executable_path=self.executable_path,
+                ),
+                timeout=t,
+            )
+            self.context = await asyncio.wait_for(self.browser.new_context(), timeout=t)
+            self.page = await asyncio.wait_for(self.context.new_page(), timeout=t)
+            self.client = await asyncio.wait_for(
+                self.context.new_cdp_session(self.page), timeout=t
+            )
+            await asyncio.wait_for(self.client.send("Page.enable"), timeout=t)
+            await asyncio.wait_for(self.client.send("Network.enable"), timeout=t)
+            await asyncio.wait_for(
+                self.client.send("Network.clearBrowserCookies"), timeout=t
+            )
+        except asyncio.TimeoutError:
+            raise asyncio.TimeoutError("browser_setup") from None
 
         self.client.on("Network.requestWillBeSent", self._on_request_sent)
         self.client.on("Network.responseReceived", self._on_response_received)
@@ -54,13 +67,21 @@ class ChromiumClient(Client):
         assert self.context is not None, "Context not initialized"
         assert self.client is not None and self.browser is not None, "Not initialized"
 
-        response = await self.client.send("Network.getAllCookies")
+        t = self.cfg.timeout_ms / 1000.0
+        try:
+            response = await asyncio.wait_for(
+                self.client.send("Network.getAllCookies"), timeout=t
+            )
+        except asyncio.TimeoutError:
+            raise asyncio.TimeoutError("Network.getAllCookies") from None
         cookies = response.get("cookies", [])
 
         if self.cfg.classifier:
-            sensitivity_result = self.cfg.classifier.classify_html(
-                await self.page.content()
-            )
+            try:
+                html = await asyncio.wait_for(self.page.content(), timeout=t)
+            except asyncio.TimeoutError:
+                raise asyncio.TimeoutError("page.content") from None
+            sensitivity_result = self.cfg.classifier.classify_html(html)
         else:
             sensitivity_result = None
 
