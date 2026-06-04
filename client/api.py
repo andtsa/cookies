@@ -71,8 +71,14 @@ class ClientAPI:
         site: Site,
         browser_cfg: BrowserConfig,
         crawl_cfg: CrawlConfig,
-    ) -> None:
-        """Process a single URL: visit it and write the cookie snapshot to disk."""
+    ) -> bool | None:
+        """Process a single URL: visit it and write the cookie snapshot to disk.
+
+        Returns:
+            None  — skipped (output file already exists)
+            True  — visited successfully
+            False — visit failed (error logged / written to failed_sites)
+        """
         if not urlparse(site.url).scheme:
             site.url = "https://" + site.url
         netloc = urlparse(site.url).netloc or site.url
@@ -87,9 +93,10 @@ class ClientAPI:
 
         if not crawl_cfg.overwrite and os.path.exists(output_path):
             print(f"[{netloc}] skipping (already collected)")
-            return
+            return None
 
         print(f"[{netloc}] crawling -> {output_path}")
+        result = True
         try:
             await ClientAPI.run_for_page(
                 site=site,
@@ -105,6 +112,7 @@ class ClientAPI:
                 cfg=browser_cfg,
             )
         except Exception as e:
+            result = False
             print(f"[{netloc}] error: {e}")
             if crawl_cfg.failed_sites_path:
                 try:
@@ -120,6 +128,8 @@ class ClientAPI:
 
         if crawl_cfg.sleep_between_ms > 0:
             await asyncio.sleep(crawl_cfg.sleep_between_ms / 1000)
+
+        return result
 
     @staticmethod
     async def process_batch(
