@@ -57,8 +57,11 @@ class Client(ABC):
             await self._navigate_to_page(site.url)
             await self._behavior_non_interactive()
             await self._on_close_get_cookies_snapshot(output, site)
-        except Exception:
-            await self._on_close_empty()
+        except BaseException:
+            try:
+                await asyncio.shield(self._on_close_empty())
+            except (asyncio.CancelledError, Exception):
+                pass
             raise
 
     def _record_node_pid(self) -> None:
