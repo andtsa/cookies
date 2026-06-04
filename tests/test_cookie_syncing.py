@@ -119,3 +119,82 @@ def test_deep_does_not_break_exact_match_kind():
     deep = fcs.analyze_site(data, min_bits=36.0, deep=True)
     assert len(deep["confirmed"]) == 1
     assert deep["confirmed"][0]["match"] == "exact"
+
+
+# --- path-sync (endpoint-keyword) detection ------------------------------
+
+_DETECTOR = fcs.PathSyncDetector()
+
+
+def test_path_detector_token_boundary_no_false_positive():
+    # "track" must not fire inside "attachment"; "match" not inside "rematching".
+    assert _DETECTOR.match("https://t.com/attachment/file", "t.com") is None
+    assert _DETECTOR.match("https://t.com/rematching/x", "t.com") is None
+
+
+def test_path_detector_matches_hyphenated_token_as_unit():
+    ev = _DETECTOR.match("https://t.com/cookie-sync/begin", "t.com")
+    assert ev is not None
+    assert "cookie-sync" in ev["path_keywords"]
+    assert ev["where"] == "path"
+
+
+def test_path_detector_matches_param_name():
+    ev = _DETECTOR.match("https://t.com/x?partner_uid=ABCDEFGH12345678", "t.com")
+    assert ev is not None
+    assert ev["path_keywords"] == []
+    assert "partner_uid" in ev["param_keywords"]
+    assert ev["where"] == "param"
+
+
+def test_path_detector_glob_pattern():
+    # Glob "sync*" matches the whole token but respects the leading boundary.
+    det = fcs.PathSyncDetector(("sync*",))
+    assert det.match("https://t.com/syncing", "t.com")["path_keywords"] == ["syncing"]
+    assert "sync_user" in det.match("https://t.com/sync_user", "t.com")["path_keywords"]
+    assert det.match("https://t.com/resync", "t.com") is None
+
+
+def test_glob_to_regex_escapes_metachars():
+    # A '.' in a pattern must be literal, not "any char".
+    det = fcs.PathSyncDetector(("a.b",))
+    assert det.match("https://t.com/a.b/x", "t.com") is not None
+    assert det.match("https://t.com/axb/x", "t.com") is None
+
+
+def test_path_sync_requires_identifier():
+    # Endpoint keyword but NO identifier on the request -> no path_sync.
+    data = _site([{"url": "https://tracker-b.com/usersync?lang=en"}])
+    result = fcs.analyze_site(data, min_bits=36.0, path_detector=_DETECTOR)
+    assert result["path_syncs"] == []
+
+
+def test_path_sync_corroborated_by_cookie():
+    data = _site([{"url": f"https://tracker-b.com/usersync?partner_id={UID}"}])
+    result = fcs.analyze_site(data, min_bits=36.0, path_detector=_DETECTOR)
+    assert len(result["path_syncs"]) == 1
+    ev = result["path_syncs"][0]
+    assert ev["to_domain"] == "tracker-b.com"
+    assert "usersync" in ev["path_keywords"]
+    assert ev["identifier"]["kind"] == "cookie"
+
+
+def test_path_sync_corroborated_by_entropy():
+    other = "z9q3w8e7r6t5y4u3i2o1p0"  # high-entropy, not a known cookie
+    data = _site([{"url": f"https://tracker-b.com/cookie-sync?u={other}"}])
+    result = fcs.analyze_site(data, min_bits=36.0, path_detector=_DETECTOR)
+    assert len(result["path_syncs"]) == 1
+    assert result["path_syncs"][0]["identifier"]["kind"] == "entropy"
+
+
+def test_path_sync_cross_domain_only():
+    # Same registered domain is never a sync, even with an identifier.
+    data = _site([{"url": f"https://api.news-site.com/usersync?id={UID}"}])
+    result = fcs.analyze_site(data, min_bits=36.0, path_detector=_DETECTOR)
+    assert result["path_syncs"] == []
+
+
+def test_path_sync_absent_when_detector_disabled():
+    data = _site([{"url": f"https://tracker-b.com/usersync?partner_id={UID}"}])
+    result = fcs.analyze_site(data, min_bits=36.0, path_detector=None)
+    assert result["path_syncs"] == []

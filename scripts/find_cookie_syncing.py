@@ -8,7 +8,7 @@ This is post-hoc analysis over the ``requests`` field that get_cookies.py now
 stores for Chromium-family crawls (full request URLs with query strings), plus
 the ``cookies`` already in each site JSON.
 
-Two layers of evidence (per the agreed design):
+Three layers of evidence (per the agreed design):
 
   PRIMARY (strong)
       A cookie value observed on the site (and its URL-encoded form) appears as
@@ -20,6 +20,13 @@ Two layers of evidence (per the agreed design):
       to look like a UID, even though we did not match it to a known cookie.
       Reported separately as a weaker "candidate" signal.
 
+  PATH (endpoint heuristic)
+      A cross-domain request hits a known sync-endpoint keyword in its URL path
+      or a query-parameter *name* (e.g. /usersync, /cookie-sync, partner_uid),
+      AND the request also carries an identifier (a high-entropy value or a
+      matched cookie). Reported separately as ``path_syncs``. See
+      ``PathSyncDetector``.
+
 For each site this writes a ``cookie_syncing`` field back into the JSON (like
 process_cookies.py adds party_type) and prints a cross-site aggregate report of
 which domain pairs sync identifiers.
@@ -30,6 +37,7 @@ Usage
     python scripts/find_cookie_syncing.py cookies_data --min-bits 36
     python scripts/find_cookie_syncing.py cookies_data --no-annotate --out syncs.json
     python scripts/find_cookie_syncing.py cookies_data --deep-match   # base64 + embedded
+    python scripts/find_cookie_syncing.py cookies_data --no-path-match # skip endpoint heuristic
 """
 
 from __future__ import annotations
@@ -39,6 +47,7 @@ import base64
 import glob
 import json
 import os
+import re
 import sys
 from collections import Counter
 from urllib.parse import parse_qsl, quote, unquote, urlparse
@@ -57,6 +66,27 @@ DEFAULT_MIN_BITS = 36.0
 # common token does not produce spurious hits inside a larger param.
 DEEP_SUBSTRING_MIN_LEN = 16
 DEEP_SUBSTRING_MIN_BITS = 60.0
+
+# Glob-style endpoint patterns for URL-path / param-name based syncing.
+# '*' = any run of token chars, '?' = one token char; plain words are exact
+# tokens. Entries may include globs, e.g. "sync*". Ordered longest-first so the
+# alternation prefers the most specific match ("usersync" before "sync").
+SYNC_ENDPOINT_PATTERNS = (
+    "usermatchredir",
+    "cookie-sync",
+    "cookie_sync",
+    "partner_uid",
+    "usersync",
+    "redirect",
+    "ttd_id",
+    "partner",
+    "track",
+    "sync",
+    "match",
+    "*sync*",
+    "*cookie*"
+    # globs are supported, e.g. add "sync*" / "*match*" here.
+)
 
 
 def _registered_domain(url_or_host: str) -> str:
@@ -117,7 +147,74 @@ def _norm_forms(s: str, deep: bool) -> set[str]:
     return {f for f in forms if len(f) >= MIN_PRIMARY_VALUE_LEN}
 
 
-def analyze_site(data: dict, min_bits: float, deep: bool = False) -> dict:
+def _glob_to_regex(pat: str) -> str:
+    """Translate a glob ('*','?') to a token-scoped regex fragment.
+
+    '*' -> any run of token chars, '?' -> one token char; every other char is
+    escaped literally. Token chars are ``[a-z0-9_-]``, so a glob never crosses a
+    path/query delimiter (``/``, ``?``, ``=``, ``&``).
+    """
+    out = []
+    for ch in pat.lower():
+        if ch == "*":
+            out.append(r"[a-z0-9_-]*")
+        elif ch == "?":
+            out.append(r"[a-z0-9_-]")
+        else:
+            out.append(re.escape(ch))
+    return "".join(out)
+
+
+class PathSyncDetector:
+    """Detect sync-endpoint keywords in a request's URL path and param names.
+
+    Token-boundary matching: a pattern matches only when it is not flanked by an
+    alphanumeric character, so "track" does not fire inside "attachment" and
+    "cookie-sync" matches as a single unit. Patterns are glob-style (see
+    :func:`_glob_to_regex`). Build once, reuse across requests — the alternation
+    regex is precompiled.
+    """
+
+    def __init__(self, patterns: tuple[str, ...] | None = None) -> None:
+        pats = tuple(patterns) if patterns else SYNC_ENDPOINT_PATTERNS
+        # Longest-first so the alternation prefers the most specific pattern.
+        ordered = sorted({p.lower() for p in pats}, key=len, reverse=True)
+        alt = "|".join(_glob_to_regex(p) for p in ordered)
+        # (?<![a-z0-9]) ... (?![a-z0-9]) gives the token/segment boundary.
+        self._pattern = re.compile(rf"(?<![a-z0-9])({alt})(?![a-z0-9])")
+
+    def _keywords_in(self, text: str) -> list[str]:
+        # Returns the actual matched substrings (e.g. "syncing" for glob "sync*").
+        return self._pattern.findall(text.lower()) if text else []
+
+    def match(self, url: str, to_domain: str) -> dict | None:
+        """Return endpoint-keyword evidence for one URL, or ``None`` if no hit.
+
+        Looks in the URL path and in each query-parameter *name* (not value).
+        """
+        parsed = urlparse(url)
+        path_kw = self._keywords_in(parsed.path)
+        name_kw: list[str] = []
+        for name, _val in parse_qsl(parsed.query, keep_blank_values=False):
+            name_kw.extend(self._keywords_in(name))
+        if not path_kw and not name_kw:
+            return None
+        where = "both" if path_kw and name_kw else ("path" if path_kw else "param")
+        return {
+            "to_domain": to_domain,
+            "request_url": url,
+            "path_keywords": sorted(set(path_kw)),
+            "param_keywords": sorted(set(name_kw)),
+            "where": where,
+        }
+
+
+def analyze_site(
+    data: dict,
+    min_bits: float,
+    deep: bool = False,
+    path_detector: "PathSyncDetector | None" = None,
+) -> dict:
     """Detect sync events for one loaded site JSON.
 
     With ``deep`` the PRIMARY matcher also recognises base64-encoded forms of a
@@ -125,11 +222,18 @@ def analyze_site(data: dict, min_bits: float, deep: bool = False) -> dict:
     values. This catches more transformed syncs at the cost of some false-
     positive risk, so it is opt-in.
 
+    When ``path_detector`` is provided, a third PATH layer flags cross-domain
+    requests that hit a known sync-endpoint keyword (in the URL path or a
+    query-parameter name) *and* carry an identifier on the same request — either
+    a confirmed cookie match or a high-entropy value.
+
     Returns a ``cookie_syncing`` dict:
         {
           "site_domain": <registered domain of the page>,
           "confirmed": [ {cookie_name, param, to_domain, request_url, match}, ...],
           "candidates": [ {param, value_preview, total_bits, to_domain, request_url}, ...],
+          "path_syncs": [ {to_domain, request_url, path_keywords, param_keywords,
+                           where, identifier}, ...],
         }
     """
     target_url = data.get("target_url", "")
@@ -157,6 +261,7 @@ def analyze_site(data: dict, min_bits: float, deep: bool = False) -> dict:
 
     confirmed = []
     candidates = []
+    path_syncs = []
 
     for req in requests:
         url = req.get("url", "")
@@ -166,6 +271,11 @@ def analyze_site(data: dict, min_bits: float, deep: bool = False) -> dict:
         # Only cross-domain requests can be syncs.
         if not to_domain or to_domain == site_domain:
             continue
+
+        # Request-level identifier signal for the PATH layer: the first cookie
+        # match or high-entropy value seen on this request corroborates an
+        # endpoint-keyword hit. Reuses the work already done below — no 2nd pass.
+        req_identifier: dict | None = None
 
         for param_name, raw_value in _param_values(url):
             if not raw_value:
@@ -199,6 +309,8 @@ def analyze_site(data: dict, min_bits: float, deep: bool = False) -> dict:
                         "match": match_kind,
                     }
                 )
+                if req_identifier is None:
+                    req_identifier = {"kind": "cookie", "cookie_name": matched_name}
                 continue  # don't also count as a candidate
 
             # SECONDARY: high-entropy cross-domain param value.
@@ -212,11 +324,25 @@ def analyze_site(data: dict, min_bits: float, deep: bool = False) -> dict:
                         "request_url": url,
                     }
                 )
+                if req_identifier is None:
+                    req_identifier = {
+                        "kind": "entropy",
+                        "total_bits": round(total_bits(decoded), 1),
+                    }
+
+        # PATH: endpoint keyword on a cross-domain request, corroborated by an
+        # identifier observed on that same request.
+        if path_detector is not None and req_identifier is not None:
+            ev = path_detector.match(url, to_domain)
+            if ev is not None:
+                ev["identifier"] = req_identifier
+                path_syncs.append(ev)
 
     return {
         "site_domain": site_domain,
         "confirmed": confirmed,
         "candidates": candidates,
+        "path_syncs": path_syncs,
     }
 
 
@@ -246,10 +372,13 @@ def iter_site_files(data_dir: str):
 
 def print_report(per_site: list[dict]) -> None:
     pair_counter: Counter = Counter()
+    path_pair_counter: Counter = Counter()
     total_confirmed = 0
     total_candidates = 0
     total_substring = 0
+    total_path = 0
     sites_with_sync = 0
+    sites_with_path = 0
 
     for entry in per_site:
         sync = entry["cookie_syncing"]
@@ -263,6 +392,13 @@ def print_report(per_site: list[dict]) -> None:
         for ev in sync["confirmed"]:
             pair_counter[(sync["site_domain"], ev["to_domain"])] += 1
 
+        path_syncs = sync.get("path_syncs", [])
+        if path_syncs:
+            sites_with_path += 1
+        total_path += len(path_syncs)
+        for ev in path_syncs:
+            path_pair_counter[(sync["site_domain"], ev["to_domain"])] += 1
+
     print(f"\n{'='*70}")
     print("  Cookie Syncing Report")
     print(f"  Sites analysed         : {len(per_site)}")
@@ -270,11 +406,19 @@ def print_report(per_site: list[dict]) -> None:
     print(f"  Confirmed sync events  : {total_confirmed}")
     print(f"    of which embedded    : {total_substring}")
     print(f"  Candidate sync events  : {total_candidates}")
+    print(f"  Sites with path-sync   : {sites_with_path}")
+    print(f"  Path-sync events       : {total_path}")
     print(f"{'='*70}\n")
 
     if pair_counter:
         print("  Top confirmed sync domain pairs (from -> to):")
         for (frm, to), count in pair_counter.most_common(30):
+            print(f"    {frm:>30}  ->  {to:<30}  ({count})")
+        print()
+
+    if path_pair_counter:
+        print("  Top sync-endpoint domain pairs (from -> to):")
+        for (frm, to), count in path_pair_counter.most_common(30):
             print(f"    {frm:>30}  ->  {to:<30}  ({count})")
         print()
 
@@ -304,6 +448,13 @@ def parse_args() -> argparse.Namespace:
         "Catches more transformed syncs at some false-positive risk.",
     )
     p.add_argument(
+        "--path-match",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Detect URL-path / param-name sync endpoints (e.g. /usersync, "
+        "partner_uid), corroborated by an identifier on the same request.",
+    )
+    p.add_argument(
         "--annotate",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -320,12 +471,19 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    path_detector = PathSyncDetector() if args.path_match else None
+
     per_site = []
     for path, data in iter_site_files(args.data_dir):
         if "requests" not in data:
             # Non-Chromium crawl or pre-upgrade data — nothing to analyse.
             continue
-        sync = analyze_site(data, min_bits=args.min_bits, deep=args.deep_match)
+        sync = analyze_site(
+            data,
+            min_bits=args.min_bits,
+            deep=args.deep_match,
+            path_detector=path_detector,
+        )
         per_site.append({"source_file": path, "cookie_syncing": sync})
 
         if args.annotate:

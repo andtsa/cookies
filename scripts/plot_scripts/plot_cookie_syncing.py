@@ -156,6 +156,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="./cookies_data/chromium")
     parser.add_argument("--out", default="./plots/syncing")
-    parser.add_argument("--top_edges", default=60, type=int)
+    parser.add_argument("--top_edges", default=500, type=int)
     args = parser.parse_args()
     plot_cookie_syncing(args.data, args.out, args.top_edges)
