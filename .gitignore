@@ -18,3 +18,4 @@ plots/
 failed_sites.txt
 profile_output/
 *.log
+.analysis_cache/
