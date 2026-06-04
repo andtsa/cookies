@@ -21,31 +21,33 @@ import sys
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(__file__))
-from utils import apply_theme, save_figure, BG, DARK, LIGHT, ACCENT, ACCENT2, MID
-
-# Import the cross-site analysis (scripts/ is on sys.path two levels up).
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from scripts.find_shared_cookies import build_index, find_shared, load_occurrences
+from utils import (
+    apply_theme,
+    dataset,
+    save_figure,
+    BG,
+    DARK,
+    LIGHT,
+    ACCENT,
+    ACCENT2,
+    MID,
+)
 
 _MATCH_MODES = ["name-md5", "value-entropy", "name-cluster"]
 _MODE_COLORS = {"name-md5": MID, "value-entropy": ACCENT2, "name-cluster": ACCENT}
-
-
-def _shared_for_mode(occurrences, mode, min_sites):
-    index = build_index(occurrences, mode)
-    return find_shared(index, min_sites=min_sites)
 
 
 def plot_shared_cookies(
     data_dir: str, out_dir: str, top_n: int = 20, min_sites: int = 2
 ) -> None:
     apply_theme()
-    occurrences = load_occurrences(data_dir)
+    ds = dataset(data_dir)
 
     # Panel A uses name-cluster (the most inclusive) so families show their real
-    # cross-site spread; Panels B compares all three modes.
+    # cross-site spread; Panel B compares all three modes. The dataset computes
+    # the grouping (no processed-data prerequisite, no duplicated logic).
     results_by_mode = {
-        mode: _shared_for_mode(occurrences, mode, min_sites) for mode in _MATCH_MODES
+        mode: ds.shared(match_mode=mode, min_sites=min_sites) for mode in _MATCH_MODES
     }
     panel_a = results_by_mode["name-cluster"][:top_n]
 
@@ -140,7 +142,7 @@ def plot_shared_cookies(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="./cookies_data_processed")
+    parser.add_argument("--data", default="./cookies_data")
     parser.add_argument("--out", default="./plots/shared")
     parser.add_argument("--top_n", default=20, type=int)
     parser.add_argument("--min_sites", default=2, type=int)
