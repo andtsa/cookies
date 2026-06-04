@@ -6,73 +6,56 @@ is the domain that received/sent it. Edge width encodes how many sync events ran
 along that pair. Node size encodes in-degree (how many distinct partners sync
 *into* a domain — the "ID collectors"). Domains seen as trackers are highlighted.
 
-Reads the ``cookie_syncing`` field that scripts/find_cookie_syncing.py writes
-into each site JSON (run it with --annotate first). Chromium-family data only.
+Cookie-syncing events are computed on the fly by ``analysis.CookieDataset``
+(no in-place JSON annotation needed). Chromium-family data only.
 
 Usage:
-    python scripts/plot_scripts/plot_cookie_syncing.py --data cookies_data/chromium --out plots/syncing --top_edges 60
+    python scripts/plot_scripts/plot_cookie_syncing.py --data cookies_data --out plots/syncing --top_edges 60
 """
 
 import argparse
-import glob
-import json
 import os
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 
 import matplotlib.pyplot as plt
 import networkx as nx
 
 sys.path.insert(0, os.path.dirname(__file__))
-from utils import apply_theme, save_figure, BG, DARK, LIGHT, ACCENT, ACCENT2, MID
+from utils import (
+    apply_theme,
+    dataset,
+    save_figure,
+    BG,
+    DARK,
+    LIGHT,
+    ACCENT,
+    ACCENT2,
+    MID,
+)
 
 
 def _load_sync_edges(data_dir: str):
-    """Return (edge_counts, tracker_domains).
+    """Return (edge_counts, tracker_domains) from the centralised dataset.
 
     edge_counts: Counter[(from_domain, to_domain)] of confirmed sync events.
-    tracker_domains: set of registered domains that set a known-tracker cookie
-                     anywhere in the dataset (used to color nodes).
+    tracker_domains: cookie domains that set a known-tracker cookie anywhere in
+                     the dataset (used to color nodes).
     """
-    paths = sorted(glob.glob(os.path.join(data_dir, "**", "*.json"), recursive=True))
-    if not paths:
-        raise FileNotFoundError(f"No JSON files found in: {data_dir}")
+    ds = dataset(data_dir)
 
     edge_counts: Counter = Counter()
-    tracker_domains: set[str] = set()
-    annotated = 0
-
-    for path in paths:
-        try:
-            with open(path, encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (json.JSONDecodeError, OSError):
-            continue
-
-        # Collect tracker domains from cookies for node coloring.
-        for cookie in data.get("cookies", []):
-            it = cookie.get("is_tracker")
-            if it:
-                dom = (cookie.get("domain") or "").lstrip(".")
-                if dom:
-                    tracker_domains.add(dom)
-
-        sync = data.get("cookie_syncing")
-        if not sync:
-            continue
-        annotated += 1
-        site_domain = sync.get("site_domain", "")
-        for ev in sync.get("confirmed", []):
+    for event in ds.syncing():
+        site_domain = event.get("site_domain", "")
+        for ev in event.get("confirmed", []):
             to_domain = ev.get("to_domain", "")
             if site_domain and to_domain and site_domain != to_domain:
                 edge_counts[(site_domain, to_domain)] += 1
 
-    if annotated == 0:
-        raise ValueError(
-            "No 'cookie_syncing' annotations found. Run "
-            "`python scripts/find_cookie_syncing.py <dir> --annotate` first "
-            "(needs a Chromium crawl with the 'requests' field)."
-        )
+    trackers = ds.cookies[ds.cookies["is_tracker"]]
+    tracker_domains = {
+        d.lstrip(".") for d in trackers["cookie_domain"].dropna().unique() if d
+    }
     return edge_counts, tracker_domains
 
 
@@ -176,7 +159,7 @@ def plot_cookie_syncing(data_dir: str, out_dir: str, top_edges: int = 60) -> Non
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="./cookies_data/chromium")
+    parser.add_argument("--data", default="./cookies_data")
     parser.add_argument("--out", default="./plots/syncing")
     parser.add_argument("--top_edges", default=60, type=int)
     args = parser.parse_args()

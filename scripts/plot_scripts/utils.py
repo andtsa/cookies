@@ -1,13 +1,26 @@
 """
 Shared color palette, data loaders, and save helper for all plot scripts.
+
+The data loaders are now thin wrappers over ``analysis.CookieDataset`` (the
+centralised analysis class). They preserve the historical column names plot
+scripts expect — including legacy aliases — so existing plots keep working while
+reading from the single, correctly-enriched source of truth.
 """
 
-import json
+import argparse
 import os
-import glob
+import sys
+
+import numpy as np
 import pandas as pd
 import matplotlib as mpl
+import matplotlib.colors as mc
 import matplotlib.pyplot as plt
+
+# Make the repo-root ``analysis`` package importable from scripts/plot_scripts/.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from analysis import CookieDataset  # noqa: E402
+from analysis.enrich import BUCKETS, BUCKET_COLORS, lifetime_bucket  # noqa: E402,F401
 
 BG = "#fef2e6"
 COLORS = [
@@ -58,127 +71,75 @@ def apply_theme():
 
 
 def _iter_cookie_files(data_dir: str):
-    """Yield (domain, browser, data) for every JSON file in data_dir.
+    """Yield ``(domain, browser, data)`` for every site JSON under ``data_dir``.
 
-    Searches recursively so both the old flat layout (data_dir/*.json) and the
-    new browser-subdirectory layout (data_dir/{browser}/*.json) are covered.
-    The ``browser`` value is the intermediate directory name (e.g. "chromium",
-    "webkit"); it is "unknown" for files sitting directly in data_dir.
+    Backward-compatibility shim for plot scripts that consume raw site dicts
+    directly. Implemented via ``analysis.loading`` so the ``browser`` value is
+    decoded correctly from the ``{country}/{browser}/{hex}/{slug}`` layout.
     """
-    paths = sorted(glob.glob(os.path.join(data_dir, "**", "*.json"), recursive=True))
+    from analysis.loading import load_site, site_paths
+
+    paths = site_paths(data_dir)
     if not paths:
         raise FileNotFoundError(f"No JSON files found in: {data_dir}")
     for path in paths:
-        with open(path) as f:
-            data = json.load(f)
-        rel = os.path.relpath(path, data_dir)
-        parts = rel.split(os.sep)
-        browser = parts[0] if len(parts) > 1 else "unknown"
-        domain = os.path.basename(path).replace(".json", "")
-        yield domain, browser, data
+        site = load_site(path, data_dir)
+        if site is not None:
+            yield site.domain, site.browser, site.data
+
+
+# One CookieDataset per data_dir, reused across loader calls within a run.
+_DATASETS: dict[str, CookieDataset] = {}
+
+
+def dataset(data_dir: str) -> CookieDataset:
+    """Return a memoised :class:`CookieDataset` for ``data_dir``."""
+    return _DATASETS.setdefault(data_dir, CookieDataset(data_dir))
+
+
+def _with_legacy_aliases(cookies: pd.DataFrame, sites: pd.DataFrame):
+    """Add the historical column names plot scripts still reference."""
+    cookies = cookies.copy()
+    sites = sites.copy()
+    if "setter_url" in cookies.columns and "set_by_url" not in cookies.columns:
+        cookies["set_by_url"] = cookies["setter_url"]
+    # site-level aliases (old site_metadata names)
+    if "easyprivacy_requests" in sites.columns:
+        sites["num_easyprivacy_requests"] = sites["easyprivacy_requests"]
+    if "easyprivacy_pct" in sites.columns:
+        sites["pct_easyprivacy_requests"] = sites["easyprivacy_pct"]
+    if "min_lifetime_days" not in sites.columns:
+        sites["min_lifetime_days"] = 0.0
+    return cookies, sites
 
 
 def load_cookie_data(data_dir: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Returns:
-        sites_df  – one row per site  (site_metadata fields + domain + browser)
-        cookies_df – one row per cookie (all cookie fields + domain + browser +
-                     set_by_third_party, set_by_type, set_by_ep_matched)
+        sites_df   – one row per (country, browser, site)
+        cookies_df – one row per cookie, fully enriched (party_type, is_tracker,
+                     entropy, set_by_*, name_family, lifetime_bucket, …)
+
+    Thin wrapper over ``CookieDataset``; column names (incl. legacy aliases like
+    ``httpOnly``/``set_by_url``) are preserved for backward compatibility.
     """
-    site_rows = []
-    cookie_rows = []
-
-    for domain, browser, data in _iter_cookie_files(data_dir):
-        meta = data.get("site_metadata", {})
-
-        site_rows.append(
-            {
-                "domain": domain,
-                "browser": browser,
-                "target_url": data.get("target_url", ""),
-                "total_cookies": meta.get("total_cookies", 0),
-                "num_session": meta.get("num_session", 0),
-                "num_persistent": meta.get("num_persistent", 0),
-                "avg_lifetime_days": meta.get("avg_lifetime_days", 0),
-                "min_lifetime_days": meta.get("min_lifetime_days", 0),
-                "max_lifetime_days": meta.get("max_lifetime_days", 0),
-                "num_easyprivacy_requests": meta.get("num_easyprivacy_requests", 0),
-                "pct_easyprivacy_requests": meta.get("pct_easyprivacy_requests", 0.0),
-            }
-        )
-
-        for cookie in data.get("cookies", []):
-            set_by = cookie.get("set_by") or {}
-            ep = set_by.get("easyprivacy") or {}
-            cookie_rows.append(
-                {
-                    "domain": domain,
-                    "browser": browser,
-                    "name": cookie.get("name"),
-                    "session": cookie.get("session", True),
-                    "cookie_type": cookie.get("cookie_type", "session"),
-                    "secure": cookie.get("secure", False),
-                    "httpOnly": cookie.get("httpOnly", False),
-                    "sameSite": cookie.get("sameSite"),
-                    "lifetime_days": cookie.get("lifetime_days", 0),
-                    "set_by_url": set_by.get("url"),
-                    "set_by_type": set_by.get("type"),
-                    "set_by_initiator": set_by.get("initiator"),
-                    "set_by_third_party": set_by.get("third_party"),
-                    "set_by_ep_matched": ep.get("matched", False),
-                }
-            )
-
-    sites_df = pd.DataFrame(site_rows)
-    cookies_df = pd.DataFrame(cookie_rows)
-    return sites_df, cookies_df
+    ds = dataset(data_dir)
+    cookies, sites = _with_legacy_aliases(ds.cookies, ds.sites)
+    return sites, cookies
 
 
 def load_tracker_cookies(data_dir: str) -> pd.DataFrame:
+    """Cookies with a boolean ``is_tracker`` column.
+
+    Tracker status is computed by the dataset (the crawler's ``tracker`` field is
+    preferred, otherwise derived from the tracker lists), so this no longer
+    requires data pre-annotated by process_cookies.py.
     """
-    Load cookies that have is_tracker annotations.
-    Skips files where is_tracker is absent (collected without --tracker-lists).
-
-    Handles both the old schema (``False`` for non-trackers) and the new schema
-    (``null`` / ``None`` for non-trackers).  In both cases the resulting
-    ``is_tracker`` column is a plain bool.
-    """
-    rows = []
-    skipped = 0
-
-    for domain, browser, data in _iter_cookie_files(data_dir):
-        for cookie in data.get("cookies", []):
-            if "is_tracker" not in cookie:
-                skipped += 1
-                continue
-            tracker_val = cookie["is_tracker"]
-            # new schema: None means not a tracker; old schema: False means same
-            if tracker_val is None or tracker_val is False:
-                is_tracker = False
-            else:
-                is_tracker = bool(tracker_val.get("lists"))
-            set_by = cookie.get("set_by") or {}
-            rows.append(
-                {
-                    "domain": domain,
-                    "browser": browser,
-                    "name": cookie.get("name"),
-                    "is_tracker": is_tracker,
-                    "cookie_type": cookie.get("cookie_type", "session"),
-                    "session": cookie.get("session", True),
-                    "lifetime_days": cookie.get("lifetime_days") or 0,
-                    "set_by_third_party": set_by.get("third_party"),
-                }
-            )
-
-    if skipped:
-        print(f"[warn] Skipped {skipped:,} cookies with no is_tracker field.")
-    if not rows:
-        raise ValueError(
-            "No cookies with is_tracker found. "
-            "Re-collect with --tracker-lists to annotate trackers."
-        )
-    return pd.DataFrame(rows)
+    ds = dataset(data_dir)
+    cookies, _ = _with_legacy_aliases(ds.cookies, ds.sites)
+    if cookies.empty:
+        raise ValueError(f"No cookies found in {data_dir!r}.")
+    return cookies
 
 
 def save_figure(out_dir: str, *filenames: str, facecolor: str = BG) -> None:
@@ -192,37 +153,143 @@ def save_figure(out_dir: str, *filenames: str, facecolor: str = BG) -> None:
     plt.close()
 
 
-BUCKETS = [
-    "Session",
-    "< 1 day",
-    "1–7 days",
-    "8–30 days",
-    "1–3 months",
-    "3–12 months",
-    "> 1 year",
-]
-BUCKET_COLORS = [
-    "#a8879d",
-    "#d8c9c0",
-    "#ffca7b",
-    "#fcc0a6",
-    "#ecb157",
-    "#ae8775",
-    "#ba4f19",
-]
+# BUCKETS, BUCKET_COLORS and lifetime_bucket are imported from analysis.enrich
+# (the canonical definition) at the top of this module and re-exported here so
+# plot scripts can keep importing them from utils unchanged.
 
 
-def lifetime_bucket(days: float, is_session: bool) -> str:
-    if is_session:
-        return "Session"
-    if days < 1:
-        return "< 1 day"
-    if days <= 7:
-        return "1–7 days"
-    if days <= 30:
-        return "8–30 days"
-    if days <= 90:
-        return "1–3 months"
-    if days <= 365:
-        return "3–12 months"
-    return "> 1 year"
+# ---------------------------------------------------------------------------
+# Plotting helpers  (eliminate the boilerplate that repeats across every script)
+# ---------------------------------------------------------------------------
+
+
+def make_parser(
+    description: str = "", *, data: str = "./cookies_data", out: str = "./plots"
+) -> argparse.ArgumentParser:
+    """Return an ArgumentParser pre-loaded with ``--data`` and ``--out``."""
+    p = argparse.ArgumentParser(description=description)
+    p.add_argument("--data", default=data)
+    p.add_argument("--out", default=out)
+    return p
+
+
+def gradient_colors(
+    values,
+    hue: float = 0.06,
+    sat_lo: float = 0.4,
+    sat_hi: float = 0.95,
+    val_lo: float = 0.9,
+    val_hi: float = 0.55,
+) -> list[str]:
+    """Per-bar HSV gradient colours scaled to the value range (warm orange ramp).
+
+    ``hue=0.06`` is the orange shade used throughout this project. ``sat_lo``/
+    ``val_lo`` is the lightest bar (lowest value); ``sat_hi``/``val_hi`` the
+    darkest (highest). Returns a list of hex colour strings.
+    """
+    vals = list(values)
+    lo, hi = min(vals), max(vals)
+    norm = plt.Normalize(lo, hi) if hi > lo else (lambda v: 0.5)
+    return [
+        mc.to_hex(
+            mc.hsv_to_rgb(
+                [
+                    hue,
+                    sat_lo + (sat_hi - sat_lo) * norm(v),
+                    val_lo + (val_hi - val_lo) * norm(v),
+                ]
+            )
+        )
+        for v in vals
+    ]
+
+
+def clean_ax(ax, *, grid_axis: str = "x", alpha: float = 0.3) -> None:
+    """Remove top/right spines and add a light grid."""
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.grid(axis=grid_axis, alpha=alpha)
+
+
+def annotate_hbars(ax, bars, labels, *, offset=None, fontsize: int = 11) -> None:
+    """Place text labels just to the right of each horizontal bar.
+
+    ``labels`` is a list of strings (one per bar). ``offset`` defaults to 1 % of
+    the widest bar so the spacing scales with the data.
+    """
+    max_w = max((b.get_width() for b in bars), default=1)
+    if offset is None:
+        offset = max_w * 0.01
+    for bar, lbl in zip(bars, labels):
+        ax.text(
+            bar.get_width() + offset,
+            bar.get_y() + bar.get_height() / 2,
+            str(lbl),
+            va="center",
+            fontsize=fontsize,
+            color=DARK,
+        )
+
+
+def hbar_chart(ax, labels, values, *, colors=None, height: float = 0.72):
+    """Draw a horizontal bar chart with the highest value at the top.
+
+    Wraps ``ax.barh`` + ``ax.invert_yaxis``; returns the bar container so
+    callers can pass it to :func:`annotate_hbars`.
+    """
+    bars = ax.barh(
+        labels, values, color=colors, edgecolor=BG, linewidth=0.6, height=height
+    )
+    ax.invert_yaxis()
+    return bars
+
+
+def donut_chart(
+    ax,
+    labels: list[str],
+    values: list[float],
+    colors: list[str],
+    *,
+    center_text: str | None = None,
+    label_distance: float = 1.28,
+    counts: list[int] | None = None,
+) -> None:
+    """Draw a donut chart with outside leader-line labels.
+
+    ``values`` are percentages (must sum to 100). Optional ``center_text`` is
+    placed in the hole. ``counts`` appends ``(n,)`` raw counts to each label.
+    """
+    wedges = ax.pie(
+        values,
+        colors=colors,
+        startangle=90,
+        wedgeprops={"width": 0.5, "edgecolor": BG, "linewidth": 2},
+    )[0]
+    if center_text:
+        ax.text(
+            0,
+            0,
+            center_text,
+            ha="center",
+            va="center",
+            fontsize=16,
+            fontweight="bold",
+            color=ACCENT,
+        )
+    for i, wedge in enumerate(wedges):
+        angle = (wedge.theta2 + wedge.theta1) / 2
+        cos_a = np.cos(np.deg2rad(angle))
+        sin_a = np.sin(np.deg2rad(angle))
+        lbl = f"{labels[i]}\n{values[i]:.1f}%"
+        if counts is not None:
+            lbl += f"  ({counts[i]:,})"
+        ax.annotate(
+            lbl,
+            xy=(0.98 * cos_a, 0.98 * sin_a),
+            xytext=(label_distance * cos_a, label_distance * sin_a),
+            ha="center",
+            va="center",
+            fontsize=11,
+            fontweight="bold",
+            color=DARK,
+            arrowprops=dict(arrowstyle="-", color=DARK, lw=1.2),
+        )
