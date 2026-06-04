@@ -93,7 +93,15 @@ class ClientAPI:
         try:
             await ClientAPI.run_for_page(
                 site=site,
-                output=Outfile(dir=specific_dir, name=safe_name, target_url=site.url),
+                output=Outfile(
+                    dir=specific_dir,
+                    name=safe_name,
+                    target_url=site.url,
+                    country=crawl_cfg.country,
+                    browser=browser_cfg.browser_type.value,
+                    rank=site.rank,
+                    category=site.category,
+                ),
                 cfg=browser_cfg,
             )
         except Exception as e:
