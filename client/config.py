@@ -10,7 +10,6 @@ if TYPE_CHECKING:
     from classifier.sensitive_classifier import SensitiveClassifier
 
 from .trackers import TrackerList
-from .trackers.matcher import EasyPrivacyMatcher
 
 load_dotenv()
 
@@ -38,6 +37,13 @@ _BROWSER_ENV_KEY: dict[Browser, str] = {
 }
 
 
+_DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/136.0.0.0 Safari/537.36"
+)
+
+
 @dataclass
 class BrowserConfig:
     """per-page browser and scraping settings passed down into Client(s)"""
@@ -47,9 +53,9 @@ class BrowserConfig:
     timeout_ms: int = 10_000
     wait_time_ms: int = 5_000
     tracker_list: Optional[TrackerList] = None
-    matcher: Optional[EasyPrivacyMatcher] = None
     classifier: Optional[SensitiveClassifier] = None
     intercept_cookie_reads: bool = True
+    user_agent: Optional[str] = _DEFAULT_USER_AGENT
 
 
 @dataclass

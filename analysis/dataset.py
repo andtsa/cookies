@@ -109,6 +109,10 @@ class CookieDataset:
         self.rebuild = rebuild
         # Memoisation store for parameterised methods / registry results.
         self._cache: dict[tuple, object] = {}
+        # Per-site EP matching cache: path -> (matched_url_set, count, pct).
+        # Shared between _build_cookies and _build_sites so the matcher only
+        # runs once per site.
+        self._ep_cache: dict = {}
 
     # ------------------------------------------------------------------ raw
     def site_files(self) -> list[Path]:
@@ -159,6 +163,62 @@ class CookieDataset:
         tl = TrackerList()
         tl.load(cache_dir=self.tracker_cache_dir, trackers=self.tracker_lists)
         return tl
+
+    @cached_property
+    def _ep_matcher(self):
+        """EasyPrivacy request-URL matcher, built lazily from the tracker list."""
+        from client.trackers.matcher import EasyPrivacyMatcher
+
+        return EasyPrivacyMatcher(self._tracker_list._easyprivacy)
+
+    def _ep_data_for_site(self, site: "SiteRaw") -> tuple[frozenset[str], int, float]:
+        """Return (matched_url_set, count, pct) of EasyPrivacy-matched requests.
+
+        For JSON files produced by an older crawler the data is read directly
+        from the stored ``easyprivacy`` field.  For new files (field absent) the
+        matcher is run over the stored request URLs so the analysis still works.
+        Results are cached per site path to avoid double computation when both
+        ``_build_cookies`` and ``_build_sites`` call this method.
+        """
+        if site.path in self._ep_cache:
+            return self._ep_cache[site.path]
+
+        requests = site.requests
+        if not requests:
+            result: tuple[frozenset[str], int, float] = (frozenset(), 0, 0.0)
+            self._ep_cache[site.path] = result
+            return result
+
+        total = len(requests)
+
+        if any("easyprivacy" in r for r in requests):
+            # Old crawl: EP data already stored in JSON — read it back.
+            matched_urls = frozenset(
+                r["url"]
+                for r in requests
+                if (r.get("easyprivacy") or {}).get("matched") and r.get("url")
+            )
+            count = sum(
+                1 for r in requests if (r.get("easyprivacy") or {}).get("matched")
+            )
+        else:
+            # New crawl: run the matcher over the stored request URLs.
+            target_url = site.target_url
+            matched: set[str] = set()
+            count = 0
+            for r in requests:
+                url = r.get("url", "")
+                doc_url = r.get("document_url", "") or target_url
+                rtype = r.get("type", "")
+                if url and self._ep_matcher.match(url, doc_url, rtype).matched:
+                    matched.add(url)
+                    count += 1
+            matched_urls = frozenset(matched)
+
+        pct = round(count / total * 100, 1) if total else 0.0
+        result = (matched_urls, count, pct)
+        self._ep_cache[site.path] = result
+        return result
 
     @cached_property
     def _site_list_map(self) -> dict[str, tuple[str, int]]:
@@ -243,7 +303,15 @@ class CookieDataset:
             rank = ctx.get("rank")
             category = ctx.get("category") or "unknown"
 
-            for c in site.cookies:
+            # Pre-fetch EP data only when at least one cookie in this site is
+            # missing setter_ep_matched (i.e. new-format crawl file).
+            cookies_list = site.cookies
+            need_ep = any("setter_ep_matched" not in c for c in cookies_list)
+            ep_urls: frozenset[str] = (
+                self._ep_data_for_site(site)[0] if need_ep else frozenset()
+            )
+
+            for c in cookies_list:
                 name = c.get("name", "")
                 value = c.get("value", "") or ""
                 setter_url = c.get("setter_url")
@@ -280,7 +348,11 @@ class CookieDataset:
                         "setter_url": setter_url,
                         "set_by_initiator": c.get("setter_initiator"),
                         "set_by_third_party": c.get("setter_third_party"),
-                        "set_by_ep_matched": bool(c.get("setter_ep_matched", False)),
+                        "set_by_ep_matched": (
+                            bool(c["setter_ep_matched"])
+                            if "setter_ep_matched" in c
+                            else bool(setter_url and setter_url in ep_urls)
+                        ),
                         "setter_domain": registered_domain(setter_url or "") or None,
                         # derived: entropy / identity
                         "entropy": metrics["entropy"],
@@ -354,8 +426,16 @@ class CookieDataset:
                     "num_trackers": sc.get("trackers", 0),
                     "tracker_pct": sc.get("tracker_pct", 0.0),
                     "total_requests": sr.get("total", 0),
-                    "easyprivacy_requests": sr.get("easyprivacy", 0),
-                    "easyprivacy_pct": sr.get("easyprivacy_pct", 0.0),
+                    "easyprivacy_requests": (
+                        sr["easyprivacy"]
+                        if "easyprivacy" in sr
+                        else self._ep_data_for_site(site)[1]
+                    ),
+                    "easyprivacy_pct": (
+                        sr["easyprivacy_pct"]
+                        if "easyprivacy_pct" in sr
+                        else self._ep_data_for_site(site)[2]
+                    ),
                     "js_reads": sj.get("reads", 0),
                     "js_writes": sj.get("writes", 0),
                     "avg_lifetime_days": (

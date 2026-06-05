@@ -111,7 +111,7 @@ class ClientAPI:
                 ),
                 cfg=browser_cfg,
             )
-        except BaseException as e:
+        except Exception as e:
             result = False
             print(f"[{netloc}] error: {e}")
             if crawl_cfg.failed_sites_path:
