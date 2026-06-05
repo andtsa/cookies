@@ -29,7 +29,9 @@ class SimplePlaywrightClient(Client):
             self.browser = await asyncio.wait_for(
                 launcher.launch(headless=self.cfg.headless), timeout=t
             )
-            self.context = await asyncio.wait_for(self.browser.new_context(), timeout=t)
+            self.context = await asyncio.wait_for(
+                self.browser.new_context(user_agent=self.cfg.user_agent), timeout=t
+            )
             self.page = await asyncio.wait_for(self.context.new_page(), timeout=t)
             await asyncio.wait_for(self.context.clear_cookies(), timeout=t)
         except asyncio.TimeoutError:
@@ -65,10 +67,21 @@ class SimplePlaywrightClient(Client):
         else:
             sensitivity_result = None
 
-        OutputFormat.process_and_save(
+        # Freeze the interceptor so no new JS callbacks race with the thread
+        # that will read session.reads / session.writes.
+        if self._cookie_read_interceptor is not None:
+            self._cookie_read_interceptor.close()
+
+        # Snapshot mutable state: Playwright response events can still fire
+        # on the event loop while process_and_save runs in the thread.
+        cookie_set_context = dict(self._cookie_set_context)
+        request_log = list(self._request_log)
+
+        await asyncio.to_thread(
+            OutputFormat.process_and_save,
             cookies,
-            self._cookie_set_context,
-            self._request_log,
+            cookie_set_context,
+            request_log,
             output,
             self.cfg.tracker_list,
             self._cookie_read_interceptor,
@@ -80,7 +93,7 @@ class SimplePlaywrightClient(Client):
 
     # playwright event handlers
 
-    def _on_request(self, request) -> None:
+    async def _on_request(self, request) -> None:
         request_url = request.url
         document_url = request.frame.url if request.frame else ""
         resource_type = request.resource_type
@@ -106,11 +119,6 @@ class SimplePlaywrightClient(Client):
                 self._request_context[request_url] = origin_ctx
                 return
 
-        easyprivacy_match = {"matched": False}
-        if self.cfg.matcher and request_url and document_url:
-            result = self.cfg.matcher.match(request_url, document_url, resource_type)
-            easyprivacy_match = result.to_dict()
-
         log_entry = {
             "url": request_url,
             "type": resource_type,
@@ -119,7 +127,6 @@ class SimplePlaywrightClient(Client):
             "initiator": "",  # not available via Playwright standard API
             "cookies_sent": [],  # Cookie header not exposed via Playwright standard API
             "redirect_chain": [],
-            "easyprivacy": easyprivacy_match,
         }
         self._request_log.append(log_entry)
         # keep a reference keyed by URL so _on_response can patch in the status

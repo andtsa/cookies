@@ -68,7 +68,12 @@ class OutputFormat:
                         "ts": w.ts,
                     }
 
-        # map url to request log entry for EasyPrivacy lookup
+        # True only for JSON files produced by an older crawler that ran the
+        # EasyPrivacy matcher per-request.  New files omit the field entirely;
+        # the analysis layer recomputes it on demand.
+        ep_matching_done = any("easyprivacy" in r for r in request_log)
+
+        # map url to request log entry for cookie attribution
         request_by_url: dict[str, Any] = {}
         for r in request_log:
             url = r.get("url", "")
@@ -106,15 +111,6 @@ class OutputFormat:
 
             network_ctx = cookie_set_context.get((cookie_name, registered), {})
             set_by_url = network_ctx.get("set_by_request_url")
-
-            ep_matched = False
-            if set_by_url:
-                req_entry = request_by_url.get(set_by_url)
-                if req_entry:
-                    ep_matched = bool(
-                        (req_entry.get("easyprivacy") or {}).get("matched")
-                    )
-
             set_by_js = js_writes_by_name.get(cookie_name)
 
             # Flat setter fields — HTTP and JS paths have different shapes.
@@ -124,8 +120,16 @@ class OutputFormat:
                     "setter_url": set_by_url,
                     "setter_request_type": network_ctx.get("set_by_request_type"),
                     "setter_third_party": network_ctx.get("is_third_party_set"),
-                    "setter_ep_matched": ep_matched,
                 }
+                # Only write setter_ep_matched when EP matching was done during
+                # this crawl; otherwise the analysis layer computes it from the
+                # stored request URLs.
+                if ep_matching_done:
+                    req_entry = request_by_url.get(set_by_url)
+                    setter_fields["setter_ep_matched"] = bool(
+                        req_entry
+                        and (req_entry.get("easyprivacy") or {}).get("matched")
+                    )
                 initiator = network_ctx.get("set_by_initiator") or ""
                 if initiator:
                     setter_fields["setter_initiator"] = initiator
@@ -168,8 +172,10 @@ class OutputFormat:
             )
 
         total_requests = len(request_log)
-        ep_matched_count = sum(
-            1 for r in request_log if (r.get("easyprivacy") or {}).get("matched")
+        ep_matched_count = (
+            sum(1 for r in request_log if (r.get("easyprivacy") or {}).get("matched"))
+            if ep_matching_done
+            else None
         )
 
         js_reads = (
@@ -183,21 +189,22 @@ class OutputFormat:
             else 0
         )
 
+        summary_requests: Dict[str, Any] = {"total": total_requests}
+        if ep_matching_done and ep_matched_count is not None:
+            summary_requests["easyprivacy"] = ep_matched_count
+            summary_requests["easyprivacy_pct"] = (
+                round(ep_matched_count / total_requests * 100, 1)
+                if total_requests
+                else 0.0
+            )
+
         summary: Dict[str, Any] = {
             "cookies": {
                 "total": len(cookies_out),
                 "session": num_session,
                 "persistent": num_persistent,
             },
-            "requests": {
-                "total": total_requests,
-                "easyprivacy": ep_matched_count,
-                "easyprivacy_pct": (
-                    round(ep_matched_count / total_requests * 100, 1)
-                    if total_requests
-                    else 0.0
-                ),
-            },
+            "requests": summary_requests,
             "js": {
                 "reads": js_reads,
                 "writes": js_writes,
@@ -223,8 +230,10 @@ class OutputFormat:
             req: dict[str, Any] = {
                 "url": r.get("url", ""),
                 "type": r.get("type", ""),
-                "easyprivacy": r.get("easyprivacy", {"matched": False}),
             }
+            # Only write the easyprivacy field when it was computed during this crawl
+            if "easyprivacy" in r:
+                req["easyprivacy"] = r["easyprivacy"]
             doc_url = r.get("document_url", "")
             if doc_url and doc_url != target_url:
                 req["document_url"] = doc_url

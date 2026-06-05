@@ -8,8 +8,7 @@ import psutil
 from client.api import Browser
 from client.config import BrowserConfig, CrawlConfig
 from client.trackers import Detections, TrackerList
-from client.trackers.matcher import EasyPrivacyMatcher
-from .engine import CrawlEngine
+from .engine import CrawlEngine, kill_orphaned_browsers
 
 
 def main():
@@ -174,7 +173,6 @@ def main():
         )
 
     tracker_list = None
-    matcher = None
     classifier = None
     if args.tracker_lists:
         tracker_list = TrackerList()
@@ -182,7 +180,6 @@ def main():
             trackers={Detections.OpenCookieDB, Detections.EasyPrivacy},
             cache_dir=args.tracker_cache_dir,
         )
-        matcher = EasyPrivacyMatcher(tracker_list._easyprivacy)
     if args.classifier:
         from classifier.sensitive_classifier import SensitiveClassifier
 
@@ -216,7 +213,6 @@ def main():
             timeout_ms=args.timeout_ms,
             wait_time_ms=args.wait_time_ms,
             tracker_list=tracker_list,
-            matcher=matcher,
             intercept_cookie_reads=args.cookie_reads,
             browser_type=browser,
             classifier=classifier,
@@ -227,6 +223,8 @@ def main():
     total_sites = args.limit or (
         1000000 if "list_websites_1M.csv" in args.input else None
     )
+
+    kill_orphaned_browsers()
 
     engine = CrawlEngine(
         crawl_cfg=crawl_cfg,

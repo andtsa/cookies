@@ -40,7 +40,9 @@ class ChromiumClient(Client):
                 ),
                 timeout=t,
             )
-            self.context = await asyncio.wait_for(self.browser.new_context(), timeout=t)
+            self.context = await asyncio.wait_for(
+                self.browser.new_context(user_agent=self.cfg.user_agent), timeout=t
+            )
             self.page = await asyncio.wait_for(self.context.new_page(), timeout=t)
             self.client = await asyncio.wait_for(
                 self.context.new_cdp_session(self.page), timeout=t
@@ -85,10 +87,22 @@ class ChromiumClient(Client):
         else:
             sensitivity_result = None
 
-        OutputFormat.process_and_save(
+        # Freeze the interceptor so no new JS callbacks race with the thread
+        # that will read session.reads / session.writes.
+        if self._cookie_read_interceptor is not None:
+            self._cookie_read_interceptor.close()
+
+        # Snapshot the mutable dicts/lists: CDP events for in-flight network
+        # requests can still arrive on the event loop while process_and_save
+        # runs in the thread.
+        cookie_set_context = dict(self._cookie_set_context)
+        request_log = list(self._request_log)
+
+        await asyncio.to_thread(
+            OutputFormat.process_and_save,
             cookies,
-            self._cookie_set_context,
-            self._request_log,
+            cookie_set_context,
+            request_log,
             output,
             self.cfg.tracker_list,
             self._cookie_read_interceptor,
@@ -150,11 +164,6 @@ class ChromiumClient(Client):
             "cookies_sent": cookies_sent,
         }
 
-        easyprivacy_match = {"matched": False}
-        if self.cfg.matcher and request_url and document_url:
-            result = self.cfg.matcher.match(request_url, document_url, cdp_type)
-            easyprivacy_match = result.to_dict()
-
         log_entry = {
             "url": request_url,
             "type": cdp_type,
@@ -163,7 +172,6 @@ class ChromiumClient(Client):
             "initiator": initiator,
             "cookies_sent": cookies_sent,
             "redirect_chain": [],
-            "easyprivacy": easyprivacy_match,
         }
         self._request_log.append(log_entry)
         self._request_context[rid]["_log_entry"] = log_entry
