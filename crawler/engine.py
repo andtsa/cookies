@@ -148,9 +148,14 @@ class CrawlEngine:
         finally:
             throttle_task.cancel()
             heartbeat_task.cancel()
-            await asyncio.gather(throttle_task, heartbeat_task, return_exceptions=True)
+            for t in worker_tasks:
+                t.cancel()
+            await asyncio.gather(
+                throttle_task, heartbeat_task, *worker_tasks, return_exceptions=True
+            )
             for _ in range(max(0, self._held[0])):
                 self._semaphore.release()
+            _kill_child_processes()
             loop.remove_signal_handler(signal.SIGTERM)
 
     async def _read_sites(self):
@@ -275,3 +280,50 @@ class CrawlEngine:
         while True:
             await asyncio.sleep(60)
             print(f"  {self.stats.checkpoint_line()}")
+
+
+def _kill_child_processes() -> None:
+    """Kill all browser/node child processes still alive after the crawl exits.
+
+    On clean shutdown these will already be gone; this is the safety net for
+    interrupted runs where teardown didn't complete.
+    """
+    try:
+        for child in psutil.Process().children(recursive=True):
+            try:
+                child.kill()
+            except psutil.NoSuchProcess:
+                pass
+    except Exception:
+        pass
+
+
+def kill_orphaned_browsers() -> None:
+    """Kill chrome-headless processes left over from a previous interrupted run.
+
+    Orphaned processes have init (PID 1) as their parent because their original
+    Python parent has already exited.  Call this at startup before launching any
+    new browsers so the old ones don't pile up and freeze the system.
+    """
+    import getpass
+
+    try:
+        current_user = getpass.getuser()
+        killed = 0
+        for proc in psutil.process_iter(["pid", "name", "username", "ppid"]):
+            try:
+                if (
+                    proc.info["username"] == current_user
+                    and "chrome" in (proc.info["name"] or "").lower()
+                    and proc.info["ppid"] == 1  # orphaned: parent is init
+                ):
+                    proc.kill()
+                    killed += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        if killed:
+            print(
+                f"[Crawler] Cleaned up {killed} orphaned browser process(es) from previous run"
+            )
+    except Exception:
+        pass
