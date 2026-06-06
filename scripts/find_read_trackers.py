@@ -35,10 +35,15 @@ import glob
 import json
 import os
 import sys
+from collections import defaultdict
+import tldextract
+import re
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from client.trackers.reads import build_cookie_domain_index, find_cross_domain_cookies
 
+
+URL_RE = re.compile(r"https?://[^\s)]+")
 # ---------------------------------------------------------------------------
 # I/O helpers
 # ---------------------------------------------------------------------------
@@ -139,6 +144,112 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def build_cookie_reader_details(
+    sessions: list[dict],
+) -> dict[str, list[dict]]:
+
+    result = defaultdict(list)
+
+    for session in sessions:
+
+        visited_domain = session.get("visited_domain", "")
+
+        for read in session.get("reads", []):
+
+            stack = read.get("stack", "")
+
+            reader_domain, reader_script = extract_primary_reader(stack)
+
+            raw = read.get("cookies", "")
+
+            for part in raw.split(";"):
+
+                part = part.strip()
+
+                if not part:
+                    continue
+
+                cookie_name = part.split("=", 1)[0].strip()
+
+                if not cookie_name:
+                    continue
+
+                result[cookie_name].append(
+                    {
+                        "visited_domain": visited_domain,
+                        "reader_domain": reader_domain,
+                        "reader_script": reader_script,
+                    }
+                )
+
+    return dict(result)
+
+
+
+def extract_primary_reader(stack: str) -> tuple[str | None, str | None]:
+    """
+    Extract the first script URL found in the stack trace and
+    return (reader_domain, reader_script_url).
+    """
+
+    urls = URL_RE.findall(stack)
+
+    if not urls:
+        return None, None
+
+    script_url = urls[0]
+
+    ext = tldextract.extract(script_url)
+
+    reader_domain = ".".join(
+        p for p in [ext.domain, ext.suffix] if p
+    )
+
+    return reader_domain, script_url
+
+def filter_third_party_readers(
+    details: dict[str, list[dict]]
+) -> dict[str, list[dict]]:
+
+    filtered = {}
+
+    for cookie_name, entries in details.items():
+
+        keep = []
+        seen = set()
+
+        for entry in entries:
+
+            visited = entry.get("visited_domain")
+            reader = entry.get("reader_domain")
+            script = entry.get("reader_script")
+
+            # Skip unknown readers
+            if not reader:
+                continue
+
+            # Skip first-party readers
+            if reader == visited:
+                continue
+
+            key = (
+                visited,
+                reader,
+                script,
+            )
+
+            # Deduplicate identical reads
+            if key in seen:
+                continue
+
+            seen.add(key)
+            keep.append(entry)
+
+        if keep:
+            filtered[cookie_name] = keep
+
+    return filtered
+
 def main() -> None:
     args = parse_args()
 
@@ -157,10 +268,27 @@ def main() -> None:
     print(f"Cookies read on ≥ {args.min_domains} distinct domain(s): {len(results)}\n")
     print_table(results)
 
-    if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
-            json.dump(results, fh, indent=2)
-        print(f"\nResults written to: {args.out}")
+    details = build_cookie_reader_details(sessions)
+    filtered_details = filter_third_party_readers(details)
+
+    base = args.out.removesuffix(".json")
+
+    results_path = f"{base}.json"
+    details_path = f"{base}_details.json"
+    filtered_path = f"{base}_filtered.json"
+
+    with open(results_path, "w", encoding="utf-8") as fh:
+        json.dump(results, fh, indent=2)
+
+    with open(details_path, "w", encoding="utf-8") as fh:
+        json.dump(details, fh, indent=2)
+
+    with open(filtered_path, "w", encoding="utf-8") as fh:
+        json.dump(filtered_details, fh, indent=2)
+
+    print(f"Results written to: {results_path}")
+    print(f"Details written to: {details_path}")
+    print(f"Third-party details written to: {filtered_path}")
 
 
 if __name__ == "__main__":
