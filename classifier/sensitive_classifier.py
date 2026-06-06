@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 class SensitiveClassifier:
 
     def __init__(self):
+
         self.vectorizer = joblib.load(
             "classifier/vectorizer_balanced_20k_features.pkl"
         )
@@ -17,6 +18,7 @@ class SensitiveClassifier:
         self.labels = self.classifier.classes_
 
     def preprocess(self, text: str) -> str:
+
         text = text.lower()
 
         text = re.sub(r"[^a-zA-Z0-9 ]", " ", text)
@@ -27,7 +29,12 @@ class SensitiveClassifier:
 
         soup = BeautifulSoup(html, "html.parser")
 
-        text = soup.get_text(separator=" ")
+        # remove useless content
+        for tag in soup(["script", "style", "noscript"]):
+            tag.decompose()
+
+        # limit text size for speed
+        text = soup.get_text(separator=" ")[:5000]
 
         text = self.preprocess(text)
 

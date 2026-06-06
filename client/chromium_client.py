@@ -80,7 +80,11 @@ class ChromiumClient(Client):
             timeout_ms: Timeout in milliseconds for page load
         """
         print(f"Navigating to {url}...")
-        await self.page.goto(url, wait_until='load', timeout=timeout_ms)
+        await self.page.goto(
+            url,
+            wait_until='domcontentloaded',
+            timeout=timeout_ms
+        )
         self.page_html = await self.page.content()
     
     async def _behavior_non_interactive(self, milliseconds: int) -> None:
