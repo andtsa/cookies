@@ -6,7 +6,7 @@ import pandas as pd
 
 from client.trackers.entropy import entropy_metrics
 
-from ..src import cache, classifier
+from ..src import cache, classifier, ep_matching
 from ..src.helpers import lifetime_bucket, md5_value, party_type, registered_domain
 
 # Popularity tiers for rank-based plots (top of list = most popular).
@@ -56,6 +56,12 @@ class FrameAccess:
         cookies_df = self._build_cookies()
         sites_df = self._build_sites(cookies_df)
         self._sites_frame = sites_df
+
+        # Flush the EasyPrivacy match memo to disk if it grew this run — keyed
+        # independently of the cookies/sites parquet cache (which only helps
+        # when *nothing* changed). The memo helps even when individual site
+        # files change, since it's keyed on request triples, not file state.
+        self._persist_ep_match_cache()
 
         if self.cache_dir:
             key = cache.dir_fingerprint(self.site_files(), self._config_repr)
@@ -122,6 +128,19 @@ class FrameAccess:
     # ------------------------------------------------------------ row builders
     def _build_cookies(self) -> pd.DataFrame:
         families = self.name_families
+
+        # Optional parallel prefetch of the expensive EasyPrivacy-matching step
+        # (96% of runtime on the 100k-site crawl per profiling). No-op unless
+        # n_workers > 1; when it runs, _ep_data_for_site below simply finds
+        # _ep_cache/_ep_match_cache already warm and skips straight to the
+        # cheap per-cookie row construction. See RawAccess._prefetch_ep_data_parallel.
+        if self.n_workers and self.n_workers > 1:
+            sites_needing_ep = [
+                s for s in self._raw_sites if ep_matching.needs_live_ep_matching(s)
+            ]
+            if sites_needing_ep:
+                self._prefetch_ep_data_parallel(sites_needing_ep)
+
         rows: list[dict] = []
         for site in self._raw_sites:
             target_url = site.target_url
@@ -134,9 +153,11 @@ class FrameAccess:
             category = ctx.get("category") or "unknown"
 
             # Pre-fetch EP data only when at least one cookie in this site is
-            # missing setter_ep_matched (i.e. new-format crawl file).
+            # missing setter_ep_matched (i.e. new-format crawl file). When
+            # n_workers prefetching ran above, this just reads the now-warm
+            # _ep_cache instead of recomputing.
             cookies_list = site.cookies
-            need_ep = any("setter_ep_matched" not in c for c in cookies_list)
+            need_ep = ep_matching.needs_live_ep_matching(site)
             ep_urls: frozenset[str] = (
                 self._ep_data_for_site(site)[0] if need_ep else frozenset()
             )

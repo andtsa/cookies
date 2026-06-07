@@ -61,6 +61,16 @@ class EasyPrivacyMatcher:
         self._except_domain_idx: dict[str, list[NetworkRule]] = defaultdict(list)
         self._except_generic: list[tuple[re.Pattern, NetworkRule]] = []
 
+        # Memo for the page-independent half of rule matching: which rules
+        # *could* match a given (host, url) — the domain-hierarchy walk plus
+        # the linear scan over generic-rule regexes. This is the expensive
+        # part (profiling shows it dominates match() runtime); it depends only
+        # on the request, never on the page/document context, so it's safe to
+        # cache for the lifetime of this matcher instance. Kept separate for
+        # block vs. exception rules since they're independent rule sets.
+        self._block_candidate_cache: dict[tuple[str, str], list[NetworkRule]] = {}
+        self._except_candidate_cache: dict[tuple[str, str], list[NetworkRule]] = {}
+
         self._build(filter_list)
         print(
             f"EasyPrivacyMatcher ready: "
@@ -154,6 +164,7 @@ class EasyPrivacyMatcher:
             abp_type,
             self._block_domain_idx,
             self._block_generic,
+            self._block_candidate_cache,
         )
         if block_rule is None:
             return MatchResult(matched=False)
@@ -167,6 +178,7 @@ class EasyPrivacyMatcher:
             abp_type,
             self._except_domain_idx,
             self._except_generic,
+            self._except_candidate_cache,
         )
         if except_rule is not None:
             return MatchResult(
@@ -175,16 +187,33 @@ class EasyPrivacyMatcher:
 
         return MatchResult(matched=True, blocked_by=block_rule)
 
-    def _find_matching_rule(
+    def _candidate_rules(
         self,
         url: str,
         host: str,
-        page_domain: str,
-        is_3p: bool,
-        abp_type: ContentType | None,
         domain_idx: dict[str, list[NetworkRule]],
         generic: list[tuple[re.Pattern, NetworkRule]],
-    ) -> NetworkRule | None:
+        cache: dict[tuple[str, str], list[NetworkRule]],
+    ) -> list[NetworkRule]:
+        """Rules that *could* match this request, ignoring page context.
+
+        This is the expensive, page-independent half of matching: walking the
+        hostname hierarchy through ``domain_idx`` (cheap dict lookups) and
+        scanning every ``generic`` rule's compiled regex against ``url`` (the
+        ~3.5k-pattern linear `pattern.search()` loop that profiling showed
+        dominates runtime). Neither step touches ``page_domain``/``is_3p``/
+        ``abp_type``, so the result is fully determined by ``(host, url)`` —
+        safe to memoise for the lifetime of this matcher, and far more widely
+        reusable than caching the final verdict: the *same* tracker request can
+        recur across many different pages/content-types, all sharing this
+        candidate set even though their final verdicts (computed by the cheap
+        ``_options_match`` filter below) may differ.
+        """
+        key = (host, url)
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+
         # Walk up the hostname hierarchy: sub.example.com → example.com → com
         parts = host.split(".")
         candidates: list[NetworkRule] = []
@@ -197,7 +226,25 @@ class EasyPrivacyMatcher:
             if pattern.search(url):
                 candidates.append(rule)
 
-        # Among candidates, apply option filters
+        cache[key] = candidates
+        return candidates
+
+    def _find_matching_rule(
+        self,
+        url: str,
+        host: str,
+        page_domain: str,
+        is_3p: bool,
+        abp_type: ContentType | None,
+        domain_idx: dict[str, list[NetworkRule]],
+        generic: list[tuple[re.Pattern, NetworkRule]],
+        candidate_cache: dict[tuple[str, str], list[NetworkRule]],
+    ) -> NetworkRule | None:
+        candidates = self._candidate_rules(
+            url, host, domain_idx, generic, candidate_cache
+        )
+
+        # Among candidates, apply the cheap, page-dependent option filters.
         for rule in candidates:
             if self._options_match(rule, page_domain, is_3p, abp_type):
                 return rule
