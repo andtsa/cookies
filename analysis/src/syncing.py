@@ -1,11 +1,9 @@
 """
-analysis/syncing.py
--------------------
-Cookie-syncing detection, absorbed from scripts/find_cookie_syncing.py.
+Cookie-syncing detection, from scripts/find_cookie_syncing.py
 
 Detects a cookie value (or a known encoding of it) being passed as a query
-parameter to a *different* registered domain — direct evidence an identifier
-crossed a domain boundary. Unlike the original script this only *returns*
+parameter to a *different* registered domain (direct evidence an identifier
+crossed a domain boundary). Unlike the original script this only *returns*
 results; it never annotates the source JSON.
 """
 
@@ -16,7 +14,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlparse
 
 from client.trackers.entropy import total_bits
 
-from .enrich import HIGH_ENTROPY_BITS, registered_domain
+from .helpers import HIGH_ENTROPY_BITS, registered_domain
 
 # Minimum cookie-value length to consider for exact matching. Very short values
 # ("1", "true", "en") produce noisy substring hits and are not UIDs.

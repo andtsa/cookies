@@ -189,7 +189,7 @@ def main():
         concurrency=concurrency,
         limit=args.limit,
         overwrite=args.overwrite,
-        failed_sites_path=args.failed_sites,
+        failed_sites_path=f"{args.output_dir}/{args.country}/{args.failed_sites}",
         sleep_between_ms=args.sleep_between_ms,
         output_dir=f"{args.output_dir}/{args.country}",
         country=args.country,
