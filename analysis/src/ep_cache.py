@@ -1,24 +1,3 @@
-"""
-Cross-run, cross-session cache for EasyPrivacy match verdicts.
-
-``EasyPrivacyMatcher.match(url, doc_url, type)`` is a pure function of its
-inputs for a fixed ruleset, and profiling on the 100k-site crawl showed ~96%
-of analysis runtime going into it (specifically the ~3.5k-regex generic-rule
-scan inside ``_find_matching_rule``). ``CookieDataset`` already memoises this
-in-process via ``_ep_match_cache`` — but that memo dies with the process. Given
-the crawl's ``{country}/{browser}/{site}`` layout (the *same* site gets
-re-matched once per country x browser combination, almost always against the
-same tracker request/document URLs) and the natural overlap of common trackers
-across sites, persisting the memo means the expensive work is paid for *once*,
-ever, per unique ``(url, doc_url, type)`` triple — not once per run.
-
-Keyed on a fingerprint of the cached EasyPrivacy ruleset file(s) under
-``tracker_cache_dir`` (stat-based, like :mod:`analysis.src.cache`'s
-``dir_fingerprint``): if the list is refreshed, the fingerprint changes and the
-stale memo is silently ignored rather than serving verdicts from an old
-ruleset.
-"""
-
 from __future__ import annotations
 
 import hashlib
