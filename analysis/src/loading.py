@@ -1,14 +1,3 @@
-"""
-Filesystem walking, path-context decoding, and the optional website-list join.
-
-Crawler output layout: ``{data_dir}/{country}/{browser}/{hexprefix}/{slug}.json``
-(e.g. ``cookies_data/Netherlands/chromium/3e/pinterest_com.json``).
-
-Rank and category come from the ``crawl_context`` block embedded in each JSON file
-by the crawler. The optional ``load_site_lists`` helper can supplement or override
-these values from external CSVs when needed.
-"""
-
 from __future__ import annotations
 
 import csv

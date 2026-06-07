@@ -116,8 +116,12 @@ class ClientAPI:
             print(f"[{netloc}] error: {e}")
             if crawl_cfg.failed_sites_path:
                 try:
+                    failed_dir = os.path.join(
+                        crawl_cfg.output_dir, browser_cfg.browser_type.value
+                    )
+                    os.makedirs(failed_dir, exist_ok=True)
                     _write_failed_site(
-                        path=crawl_cfg.failed_sites_path,
+                        path=os.path.join(failed_dir, crawl_cfg.failed_sites_path),
                         site=site,
                         error=e,
                     )
@@ -222,11 +226,16 @@ def _write_failed_site(path: str, site: Site, error: BaseException) -> None:
 def get_error_reason(error: BaseException) -> tuple[str, str]:
     msg = str(error)
 
-    match = re.search(r"net::(ERR_[A-Z_]+)", msg)
+    # Chromium/Chrome/Edge/Brave style: "net::ERR_NAME_NOT_RESOLVED"
+    chromium_match = re.search(r"net::(ERR_[A-Z_]+)", msg)
+    # Firefox/WebKit (gecko) style: "NS_ERROR_UNKNOWN_HOST", "NS_ERROR_NET_TIMEOUT", ...
+    firefox_match = re.search(r"(NS_ERROR_[A-Z_]+)", msg)
 
     msg = msg.strip()[:100].replace("\n", " ")
-    if match:
-        return match.group(1), "network error"
+    if chromium_match:
+        return chromium_match.group(1), "network error"
+    if firefox_match:
+        return firefox_match.group(1), "network error"
 
     if "Page.goto" in msg:
         return "TIMEOUT", "Page.goto"

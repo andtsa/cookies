@@ -135,8 +135,13 @@ class FrameAccess:
         # _ep_cache/_ep_match_cache already warm and skips straight to the
         # cheap per-cookie row construction. See RawAccess._prefetch_ep_data_parallel.
         if self.n_workers and self.n_workers > 1:
+            # needs_ep_data covers BOTH triggers of _ep_data_for_site — the
+            # cookie-level one this loop uses below (need_ep) AND the
+            # site-level one _build_sites uses for easyprivacy_requests/_pct.
+            # Missing the latter here is exactly what leaves a straggler site
+            # to cold-build its own _ep_matcher in the main process later.
             sites_needing_ep = [
-                s for s in self._raw_sites if ep_matching.needs_live_ep_matching(s)
+                s for s in self._raw_sites if ep_matching.needs_ep_data(s)
             ]
             if sites_needing_ep:
                 self._prefetch_ep_data_parallel(sites_needing_ep)

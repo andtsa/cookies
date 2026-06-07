@@ -1,11 +1,3 @@
-"""
-Cross-site shared-cookie detection, from scripts/find_shared_cookies.py
-
-Operates on *occurrence dicts* (one per cookie, projected from the enriched
-frame) rather than re-reading files, so it shares the dataset's single parse and
-its already-computed name families.
-"""
-
 from __future__ import annotations
 
 from collections import defaultdict

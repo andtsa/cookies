@@ -94,11 +94,6 @@ def main():
         help="Overwrite existing output files (default: skip already-collected sites).",
     )
     parser.add_argument(
-        "--failed-sites",
-        default="failed_sites.csv",
-        help="Append failed domain names to this file (default: disabled).",
-    )
-    parser.add_argument(
         "--sleep-between-ms",
         type=int,
         default=0,
@@ -189,20 +184,24 @@ def main():
         concurrency=concurrency,
         limit=args.limit,
         overwrite=args.overwrite,
-        failed_sites_path=f"{args.output_dir}/{args.country}/{args.failed_sites}",
+        failed_sites_path="failed_sites.csv",
         sleep_between_ms=args.sleep_between_ms,
         output_dir=f"{args.output_dir}/{args.country}",
         country=args.country,
     )
 
-    progress_file = os.path.join(crawl_cfg.output_dir, "progress.txt")
+    # progress.txt lives per-browser
+    progress_filename = "progress.txt"
+    first_browser_progress = os.path.join(
+        crawl_cfg.output_dir, browsers[0].value, progress_filename
+    )
     if args.skip_first:
         start_index = args.skip_first
-    elif os.path.exists(progress_file):
-        with open(progress_file) as pf:
+    elif os.path.exists(first_browser_progress):
+        with open(first_browser_progress) as pf:
             start_index = int(pf.read().strip())
         print(
-            f"[Crawler] Auto-resuming from site {start_index} (found {progress_file})"
+            f"[Crawler] Auto-resuming from site {start_index} (found {first_browser_progress})"
         )
     else:
         start_index = 0
@@ -226,13 +225,18 @@ def main():
 
     kill_orphaned_browsers()
 
+    # stats.json lives at the top-level output dir (e.g. cookies_data/stats.json)
+    # so it can be `watch cat`-ed regardless of which country/browser is active.
+    stats_path = os.path.join(args.output_dir, "stats.json")
+
     engine = CrawlEngine(
         crawl_cfg=crawl_cfg,
         browser_cfgs=browser_cfgs,
         batch_size=args.batch_size,
         start_index=start_index,
         total_sites=total_sites,
-        progress_file=progress_file,
+        progress_filename=progress_filename,
+        stats_path=stats_path,
         input_path=args.input,
         category=args.category,
     )
