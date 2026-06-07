@@ -6,8 +6,67 @@ from pathlib import Path
 from client.trackers import TrackerList
 from client.trackers.name_similarity import cluster_names
 
+from ..src import ep_cache, ep_matching
 from ..src.loading import load_site, load_site_lists, site_paths
 from ..src.records import SiteRaw
+
+
+def _ep_prefetch_worker(
+    path_strs: list[str],
+    data_dir: str,
+    tracker_list_names: list[str],
+    tracker_cache_dir: str,
+    seed_match_cache: dict["ep_matching.MatchKey", bool],
+) -> tuple[dict[str, "ep_matching.EpResult"], dict["ep_matching.MatchKey", bool]]:
+    """Module-level (picklable) worker body for :meth:`RawAccess._prefetch_ep_data_parallel`.
+
+    Runs in a separate process: rebuilds a local ``TrackerList``/
+    ``EasyPrivacyMatcher`` from the on-disk ruleset cache (cheap — cached-file
+    read + parse, no recomputation/network), re-loads each assigned site from
+    its JSON path, and computes EP data via the *same* shared
+    :func:`ep_matching.ep_data_for_site` the in-process path uses — so results
+    are guaranteed identical regardless of whether prefetching ran.
+
+    ``seed_match_cache`` is the parent's *persisted* memo (loaded from disk —
+    see :mod:`analysis.src.ep_cache`), copied into this worker's local cache
+    before it starts. Without this, a warm on-disk memo would sit unused in the
+    parent while every worker redundantly recomputes verdicts it already knows
+    — defeating the whole point of persistence whenever prefetching is also
+    enabled. The one-time pickle/IPC cost of handing over the seed is dwarfed
+    by the ~3.5k-regex-per-request scans it lets the worker skip.
+
+    Returns small, picklable dicts keyed by ``str(path)`` / the match-memo
+    triple — *only the new entries this worker discovered* (the seed is not
+    echoed back, since the parent already has it) — ready for the parent to
+    merge into ``_ep_cache``/``_ep_match_cache``. Batches are pre-grouped by
+    site domain so a worker's local cache also captures the cross-(country,
+    browser) repetition for the sites that matter most.
+    """
+    from client.trackers import Detections, TrackerList
+    from client.trackers.matcher import EasyPrivacyMatcher
+
+    tl = TrackerList()
+    tl.load(
+        cache_dir=tracker_cache_dir,
+        trackers={Detections[name] for name in tracker_list_names},
+    )
+    matcher = EasyPrivacyMatcher(tl._easyprivacy)
+
+    seed_keys = frozenset(seed_match_cache)
+    local_match_cache: dict[ep_matching.MatchKey, bool] = dict(seed_match_cache)
+    ep_results: dict[str, "ep_matching.EpResult"] = {}
+
+    for path_str in path_strs:
+        path = Path(path_str)
+        site = load_site(path, data_dir)
+        if site is None:
+            continue
+        ep_results[path_str] = ep_matching.ep_data_for_site(
+            site, matcher, local_match_cache
+        )
+
+    new_entries = {k: v for k, v in local_match_cache.items() if k not in seed_keys}
+    return ep_results, new_entries
 
 
 class RawAccess:
@@ -47,54 +106,168 @@ class RawAccess:
 
         return EasyPrivacyMatcher(self._tracker_list._easyprivacy)
 
+    @cached_property
+    def _ep_match_fingerprint(self) -> str:
+        """Identifies *which* EasyPrivacy ruleset the persisted memo belongs to.
+
+        Computed from the cached filter-list file(s) under
+        ``tracker_cache_dir`` (stat-based — cheap, no parsing). If the list is
+        refreshed, this changes and the on-disk memo is treated as stale.
+        """
+        return ep_cache.ruleset_fingerprint(self.tracker_cache_dir)
+
+    @cached_property
+    def _ep_match_cache(self) -> dict[tuple[str, str, str], bool]:
+        """Disk-backed memo for ``EasyPrivacyMatcher.match(url, doc_url, type)``.
+
+        Loaded once, lazily, from ``<cache_dir>/ep_match_cache.<fingerprint>.pkl``
+        if present and fingerprint-matched; otherwise starts empty. Persisted by
+        :meth:`_persist_ep_match_cache` once ``cookies`` finishes building (see
+        ``FrameAccess.cookies``) so the next run — or the next plot script in
+        the same session — starts warm instead of recomputing from scratch.
+        """
+        if self.cache_dir:
+            loaded = ep_cache.load(self.cache_dir, self._ep_match_fingerprint)
+            if loaded is not None:
+                print(
+                    f"[CookieDataset] loaded {len(loaded):,} cached EasyPrivacy "
+                    f"match verdicts from disk"
+                )
+                return loaded
+        return {}
+
+    def _persist_ep_match_cache(self) -> None:
+        """Flush ``_ep_match_cache`` to disk if it grew during this run.
+
+        Best-effort: cache persistence must never break the analysis, so any
+        I/O error is swallowed (the in-memory memo still works for the rest of
+        this process either way).
+        """
+        if not (self.cache_dir and self._ep_match_cache_dirty):
+            return
+        try:
+            ep_cache.save(
+                self.cache_dir, self._ep_match_fingerprint, self._ep_match_cache
+            )
+            self._ep_match_cache_dirty = False
+            print(
+                f"[CookieDataset] persisted {len(self._ep_match_cache):,} "
+                f"EasyPrivacy match verdicts to disk"
+            )
+        except Exception:
+            pass
+
     def _ep_data_for_site(self, site: "SiteRaw") -> tuple[frozenset[str], int, float]:
         """Return (matched_url_set, count, pct) of EasyPrivacy-matched requests.
 
-        For JSON files produced by an older crawler the data is read directly
-        from the stored ``easyprivacy`` field.  For new files (field absent) the
-        matcher is run over the stored request URLs so the analysis still works.
-        Results are cached per site path to avoid double computation when both
-        ``_build_cookies`` and ``_build_sites`` call this method.
+        Thin, instance-state-aware wrapper over the shared
+        :func:`analysis.src.ep_matching.ep_data_for_site` (see that module's
+        docstring for *why* the actual logic lives there rather than here: it
+        must be byte-for-byte identical to what the parallel-prefetch workers
+        run, or the two paths could silently diverge). This wrapper just owns
+        the per-site result cache (``_ep_cache``, avoiding double computation
+        when both ``_build_cookies`` and ``_build_sites`` call this) and flips
+        ``_ep_match_cache_dirty`` when the shared verdict memo grows, so
+        :meth:`_persist_ep_match_cache` knows to flush it to disk.
         """
         if site.path in self._ep_cache:
             return self._ep_cache[site.path]
 
-        requests = site.requests
-        if not requests:
-            result: tuple[frozenset[str], int, float] = (frozenset(), 0, 0.0)
-            self._ep_cache[site.path] = result
-            return result
+        before = len(self._ep_match_cache)
+        result = ep_matching.ep_data_for_site(
+            site, self._ep_matcher, self._ep_match_cache
+        )
+        if len(self._ep_match_cache) > before:
+            self._ep_match_cache_dirty = True
 
-        total = len(requests)
-
-        if any("easyprivacy" in r for r in requests):
-            # Old crawl: EP data already stored in JSON, read it back
-            matched_urls = frozenset(
-                r["url"]
-                for r in requests
-                if (r.get("easyprivacy") or {}).get("matched") and r.get("url")
-            )
-            count = sum(
-                1 for r in requests if (r.get("easyprivacy") or {}).get("matched")
-            )
-        else:
-            # New crawl: run the matcher over the stored request URLs
-            target_url = site.target_url
-            matched: set[str] = set()
-            count = 0
-            for r in requests:
-                url = r.get("url", "")
-                doc_url = r.get("document_url", "") or target_url
-                rtype = r.get("type", "")
-                if url and self._ep_matcher.match(url, doc_url, rtype).matched:
-                    matched.add(url)
-                    count += 1
-            matched_urls = frozenset(matched)
-
-        pct = round(count / total * 100, 1) if total else 0.0
-        result = (matched_urls, count, pct)
         self._ep_cache[site.path] = result
         return result
+
+    def _prefetch_ep_data_parallel(self, sites: list["SiteRaw"]) -> None:
+        """Warm ``_ep_cache``/``_ep_match_cache`` for ``sites`` using a process pool.
+
+        Why this — and not parallelising all of ``_build_cookies`` — is the
+        right scope: ``CookieDataset``, ``SiteRaw`` payloads, and a matcher full
+        of compiled regexes aren't cleanly/cheaply picklable across a process
+        boundary, and the EP-matching step is *the* bottleneck (96% of runtime
+        per profiling) and is embarrassingly parallel — each site's matching is
+        independent. So workers rebuild a matcher locally from the on-disk
+        ruleset cache (cheap: cached-file read + parse, no network), process a
+        batch of site paths with the exact same shared
+        :func:`ep_matching.ep_data_for_site` logic, and hand back small,
+        picklable dicts that this method merges. The existing single-threaded
+        ``_build_cookies``/``_build_sites`` loops then simply find ``_ep_cache``
+        already warm and skip the expensive path entirely.
+
+        Sites are grouped by ``domain`` (the slug shared across every
+        country×browser re-visit of the same site — see ``__init__``'s notes on
+        the ``{country}/{browser}/{site}`` layout) and whole groups are handed
+        to the same worker, so that worker's *local* match-cache captures the
+        cross-(country, browser) repetition for that site too — not just
+        cross-site overlap.
+
+        No-op unless ``n_workers > 1`` and there's enough work to amortise pool
+        start-up cost (each worker re-parses the EasyPrivacy list once).
+        """
+        needing = [s for s in sites if s.path not in self._ep_cache]
+        if not needing:
+            return
+        n = self.n_workers or 0
+        if n <= 1 or len(needing) < max(n * 2, 8):
+            return  # too little work to be worth spinning up a pool
+
+        by_domain: dict[str, list["SiteRaw"]] = {}
+        for s in needing:
+            by_domain.setdefault(s.domain, []).append(s)
+        groups = sorted(by_domain.values(), key=len, reverse=True)
+
+        batches: list[list[str]] = [[] for _ in range(n)]
+        for i, group in enumerate(groups):
+            batches[i % n].extend(str(s.path) for s in group)
+        batches = [b for b in batches if b]
+        if len(batches) <= 1:
+            return
+
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        # Seed every worker from the persisted memo (loaded lazily here, which
+        # also prints the "loaded N cached verdicts" line up front) — otherwise
+        # a warm on-disk cache would sit unused in this process while workers
+        # redundantly recompute verdicts it already has. See _ep_prefetch_worker.
+        seed = dict(self._ep_match_cache)
+        print(
+            f"[CookieDataset] pre-fetching EasyPrivacy match data for "
+            f"{len(needing):,} sites across {len(batches)} worker process(es)"
+            + (f" (seeding each from {len(seed):,} cached verdicts)" if seed else "")
+            + "…"
+        )
+        tracker_list_names = sorted(d.name for d in self.tracker_lists)
+        n_done = 0
+        with ProcessPoolExecutor(max_workers=len(batches)) as pool:
+            futures = [
+                pool.submit(
+                    _ep_prefetch_worker,
+                    batch,
+                    self.data_dir,
+                    tracker_list_names,
+                    self.tracker_cache_dir,
+                    seed,
+                )
+                for batch in batches
+            ]
+            for fut in as_completed(futures):
+                ep_results, match_additions = fut.result()
+                for path_str, result in ep_results.items():
+                    self._ep_cache[Path(path_str)] = result
+                if match_additions:
+                    self._ep_match_cache.update(match_additions)
+                    self._ep_match_cache_dirty = True
+                n_done += 1
+                print(
+                    f"[CookieDataset]   worker {n_done}/{len(batches)} done "
+                    f"(+{len(ep_results):,} sites, "
+                    f"+{len(match_additions):,} new match verdicts)"
+                )
 
     @cached_property
     def _site_list_map(self) -> dict[str, tuple[str, int]]:
