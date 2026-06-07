@@ -1,15 +1,10 @@
 """
-analysis/cache.py
------------------
 Cross-run cache for the enriched ``cookies`` / ``sites`` frames.
 
 The cache is reused only while the data is unchanged: the key is a blake2b of
 every site file's ``(relpath, size, mtime_ns)`` (stat-only — no file reads)
 combined with the config that affects derived values and a schema version. Any
 add/remove/edit changes the fingerprint and forces a rebuild.
-
-Parquet (pyarrow) is preferred; if unavailable we fall back to pickle so the
-cache still works without the optional dependency.
 """
 
 from __future__ import annotations

@@ -19,8 +19,12 @@ import matplotlib.pyplot as plt
 
 # Make the repo-root ``analysis`` package importable from scripts/plot_scripts/.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from analysis import CookieDataset  # noqa: E402
-from analysis.enrich import BUCKETS, BUCKET_COLORS, lifetime_bucket  # noqa: E402,F401
+from analysis import (  # noqa: E402,F401
+    BUCKET_COLORS,
+    BUCKETS,
+    CookieDataset,
+    lifetime_bucket,
+)
 
 BG = "#fef2e6"
 COLORS = [
@@ -74,18 +78,18 @@ def _iter_cookie_files(data_dir: str):
     """Yield ``(domain, browser, data)`` for every site JSON under ``data_dir``.
 
     Backward-compatibility shim for plot scripts that consume raw site dicts
-    directly. Implemented via ``analysis.loading`` so the ``browser`` value is
-    decoded correctly from the ``{country}/{browser}/{hex}/{slug}`` layout.
+    directly. Goes through :meth:`CookieDataset.iter_raw_sites` (the public
+    raw-access escape hatch) so the ``browser`` value is decoded correctly
+    from the ``{country}/{browser}/{hex}/{slug}`` layout, without reaching
+    into the package's internal loading machinery.
     """
-    from analysis.loading import load_site, site_paths
-
-    paths = site_paths(data_dir)
-    if not paths:
+    ds = dataset(data_dir)
+    found = False
+    for site in ds.iter_raw_sites():
+        found = True
+        yield site.domain, site.browser, site.data
+    if not found:
         raise FileNotFoundError(f"No JSON files found in: {data_dir}")
-    for path in paths:
-        site = load_site(path, data_dir)
-        if site is not None:
-            yield site.domain, site.browser, site.data
 
 
 # One CookieDataset per data_dir, reused across loader calls within a run.
@@ -153,7 +157,7 @@ def save_figure(out_dir: str, *filenames: str, facecolor: str = BG) -> None:
     plt.close()
 
 
-# BUCKETS, BUCKET_COLORS and lifetime_bucket are imported from analysis.enrich
+# BUCKETS, BUCKET_COLORS and lifetime_bucket are re-exported from analysis
 # (the canonical definition) at the top of this module and re-exported here so
 # plot scripts can keep importing them from utils unchanged.
 
