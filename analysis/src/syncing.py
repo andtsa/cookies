@@ -1,12 +1,3 @@
-"""
-Cookie-syncing detection, from scripts/find_cookie_syncing.py
-
-Detects a cookie value (or a known encoding of it) being passed as a query
-parameter to a *different* registered domain (direct evidence an identifier
-crossed a domain boundary). Unlike the original script this only *returns*
-results; it never annotates the source JSON.
-"""
-
 from __future__ import annotations
 
 import base64

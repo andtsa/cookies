@@ -50,7 +50,7 @@ import pandas as pd
 
 from .helpers import HIGH_ENTROPY_BITS
 
-# --------------------------------------------------------------------- tiers
+# tiers
 NONE = "none"
 POSSIBLE = "possible"
 PROBABLE = "probable"
@@ -83,10 +83,16 @@ class _Evidence:
     synced_names: dict[tuple[str, str, str], frozenset[str]] = field(
         default_factory=dict
     )
-    # md5_value -> the largest matching shared-identifier group summary
-    shared_by_md5: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # cookie name -> distinct domain count it was JS-read on across the dataset
-    cross_domain_reads_by_name: dict[str, int] = field(default_factory=dict)
+    # (country, browser, md5_value) -> the largest matching shared-identifier
+    # group summary *within that single crawl* — see note on pooling below.
+    shared_by_md5: dict[tuple[str, str, str], dict[str, Any]] = field(
+        default_factory=dict
+    )
+    # (country, browser, cookie_name) -> distinct domain count it was JS-read
+    # on, within that single crawl.
+    cross_domain_reads_by_name: dict[tuple[str, str, str], int] = field(
+        default_factory=dict
+    )
 
 
 def _index_evidence(
@@ -94,6 +100,21 @@ def _index_evidence(
     sync_events: list[dict] | None,
     cross_domain_reads: list[dict] | None,
 ) -> _Evidence:
+    """Pre-index the three relational passes for O(1) per-cookie lookup.
+
+    All three are scoped to a single ``(country, browser)`` crawl — not pooled
+    across the whole dataset. This matters because the crawl is laid out as
+    ``{country}/{browser}/{site}``: the *same* physical website is re-visited
+    once per country×browser combination, so a persistent identifier that
+    merely survives those re-visits would otherwise look like genuine
+    cross-site sharing / cross-domain reads (inflating ``site_count`` /
+    ``domain_count`` without any real cross-site behaviour). Keying evidence by
+    ``(country, browser, ...)`` and looking it up via the cookie's own crawl
+    keeps each crawl's signal self-contained, matching :meth:`syncing`'s
+    (already per-crawl) scoping. ``shared_groups``/``cross_domain_reads`` are
+    expected to already be partitioned per crawl — see
+    ``RelationalAccess.shared``/``RelationalAccess.cross_domain_reads``.
+    """
     synced: dict[tuple[str, str, str], set[str]] = defaultdict(set)
     for ev in sync_events or []:
         key = (ev.get("country", ""), ev.get("browser", ""), ev.get("domain", ""))
@@ -102,22 +123,24 @@ def _index_evidence(
             if name:
                 synced[key].add(name)
 
-    shared_by_md5: dict[str, dict[str, Any]] = {}
+    shared_by_md5: dict[tuple[str, str, str], dict[str, Any]] = {}
     for group in shared_groups or []:
         md5 = group.get("md5_value")
         if not md5:
             continue
-        prev = shared_by_md5.get(md5)
+        key = (group.get("country", ""), group.get("browser", ""), md5)
+        prev = shared_by_md5.get(key)
         if prev is None or group.get("site_count", 0) > prev.get("site_count", 0):
-            shared_by_md5[md5] = group
+            shared_by_md5[key] = group
 
-    read_counts: dict[str, int] = {}
+    read_counts: dict[tuple[str, str, str], int] = {}
     for entry in cross_domain_reads or []:
         name = entry.get("cookie_name")
         if not name:
             continue
+        key = (entry.get("country", ""), entry.get("browser", ""), name)
         count = entry.get("domain_count") or len(entry.get("domains") or ())
-        read_counts[name] = max(read_counts.get(name, 0), count)
+        read_counts[key] = max(read_counts.get(key, 0), count)
 
     return _Evidence(
         synced_names={k: frozenset(v) for k, v in synced.items()},
@@ -147,14 +170,18 @@ def _classify_row(
     third_party_set = bool(row.get("set_by_third_party"))
     listed = bool(row.get("is_tracker_ep")) or bool(row.get("is_tracker_ocd"))
 
-    site_key = (row.get("country", ""), row.get("browser", ""), row.get("domain", ""))
+    country = row.get("country", "")
+    browser = row.get("browser", "")
+    site_key = (country, browser, row.get("domain", ""))
     was_synced = row.get("name") in evidence.synced_names.get(site_key, frozenset())
 
-    shared = evidence.shared_by_md5.get(row.get("md5_value"))
+    shared = evidence.shared_by_md5.get((country, browser, row.get("md5_value")))
     shared_sites = shared.get("site_count", 0) if shared else 0
     shared_has_3p = bool(shared.get("has_third_party")) if shared else False
 
-    read_domains = evidence.cross_domain_reads_by_name.get(row.get("name", ""), 0)
+    read_domains = evidence.cross_domain_reads_by_name.get(
+        (country, browser, row.get("name", "")), 0
+    )
 
     # capability: the cookie *could* track on its own structure/context
     if capable:

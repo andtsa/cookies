@@ -1,16 +1,3 @@
-"""
-Pure per-cookie derivation helpers, absorbed from the scattered scripts so the
-analysis package never imports ``scripts/``.
-
-Sources of the absorbed logic (kept here as the single implementation):
-  * party type            <- scripts/process_cookies.py (get_base_domain / is_first_party)
-  * lifetime bucketing     <- scripts/plot_scripts/utils.py (lifetime_bucket / BUCKETS)
-  * entropy / md5          <- client.trackers.entropy + hashlib
-
-These are intentionally dependency-light and side-effect free; ``dataset.py``
-calls them while assembling the enriched cookie frame.
-"""
-
 from __future__ import annotations
 
 import hashlib

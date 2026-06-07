@@ -23,7 +23,8 @@ class CrawlEngine:
         batch_size: int,
         start_index: int,
         total_sites: Optional[int],
-        progress_file: str,
+        progress_filename: str,
+        stats_path: str,
         input_path: str,
         category: str,
     ):
@@ -32,7 +33,14 @@ class CrawlEngine:
         self.batch_size = batch_size
         self.start_index = start_index
         self.total_sites = total_sites
-        self.progress_file = progress_file
+        self._progress_filename = progress_filename
+        self._progress_paths = [
+            os.path.join(
+                crawl_cfg.output_dir, cfg.browser_type.value, progress_filename
+            )
+            for cfg in browser_cfgs
+        ]
+        self.stats_path = stats_path
         self._input_path = input_path
         self._category = category
 
@@ -90,7 +98,6 @@ class CrawlEngine:
             asyncio.create_task(self._worker()) for _ in range(self.max_concurrency)
         ]
 
-        stats_file = os.path.join(self.crawl_cfg.output_dir, "stats.json")
         crawl_start_t = time.time()
         now = datetime.now().strftime("%H:%M")
         print(f"\n{'='*60}")
@@ -134,10 +141,9 @@ class CrawlEngine:
             )
             print(f"{'='*60}\n")
 
-            os.makedirs(self.crawl_cfg.output_dir, exist_ok=True)
-            with open(self.progress_file, "w") as pf:
-                pf.write(str(processed_sites))
-            self.stats.write(stats_file, total_sites=self.total_sites)
+            self._write_progress(processed_sites)
+            os.makedirs(os.path.dirname(self.stats_path) or ".", exist_ok=True)
+            self.stats.write(self.stats_path, total_sites=self.total_sites)
 
         except asyncio.CancelledError:
             processed_sites = self.start_index + self.stats.completed
@@ -178,8 +184,16 @@ class CrawlEngine:
                         category=self._category,
                     ), cfg
 
+    def _write_progress(self, n: int) -> None:
+        """Mirror the progress count into every browser's progress.txt."""
+        for path in self._progress_paths:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".tmp"
+            with open(tmp, "w") as pf:
+                pf.write(str(n))
+            os.replace(tmp, path)
+
     async def _worker(self) -> None:
-        stats_file = os.path.join(self.crawl_cfg.output_dir, "stats.json")
         while True:
             item = await self._work_queue.get()
             if item is None:
@@ -205,10 +219,9 @@ class CrawlEngine:
             if cfg is self.browser_cfgs[-1]:
                 n = await self.stats.record_completion()
                 if n % self.batch_size == 0:
-                    os.makedirs(self.crawl_cfg.output_dir, exist_ok=True)
-                    with open(self.progress_file, "w") as pf:
-                        pf.write(str(self.start_index + n))
-                    self.stats.write(stats_file, total_sites=self.total_sites)
+                    self._write_progress(self.start_index + n)
+                    os.makedirs(os.path.dirname(self.stats_path) or ".", exist_ok=True)
+                    self.stats.write(self.stats_path, total_sites=self.total_sites)
                     print(f"\n  {self.stats.checkpoint_line()}")
 
     async def _throttle_monitor(self) -> None:
