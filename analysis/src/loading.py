@@ -1,6 +1,4 @@
 """
-analysis/loading.py
--------------------
 Filesystem walking, path-context decoding, and the optional website-list join.
 
 Crawler output layout: ``{data_dir}/{country}/{browser}/{hexprefix}/{slug}.json``
@@ -19,7 +17,7 @@ import json
 import os
 from pathlib import Path
 
-from .enrich import registered_domain
+from .helpers import registered_domain
 from .records import SiteRaw
 
 
