@@ -1,12 +1,3 @@
-"""
-Shared color palette, data loaders, and save helper for all plot scripts.
-
-The data loaders are now thin wrappers over ``analysis.CookieDataset`` (the
-centralised analysis class). They preserve the historical column names plot
-scripts expect — including legacy aliases — so existing plots keep working while
-reading from the single, correctly-enriched source of truth.
-"""
-
 import argparse
 import os
 import sys
@@ -75,14 +66,7 @@ def apply_theme():
 
 
 def _iter_cookie_files(data_dir: str):
-    """Yield ``(domain, browser, data)`` for every site JSON under ``data_dir``.
-
-    Backward-compatibility shim for plot scripts that consume raw site dicts
-    directly. Goes through :meth:`CookieDataset.iter_raw_sites` (the public
-    raw-access escape hatch) so the ``browser`` value is decoded correctly
-    from the ``{country}/{browser}/{hex}/{slug}`` layout, without reaching
-    into the package's internal loading machinery.
-    """
+    """Yield ``(domain, browser, data)`` for every site JSON under ``data_dir``"""
     ds = dataset(data_dir)
     found = False
     for site in ds.iter_raw_sites():
@@ -98,7 +82,8 @@ _DATASETS: dict[str, CookieDataset] = {}
 
 def dataset(data_dir: str) -> CookieDataset:
     """Return a memoised :class:`CookieDataset` for ``data_dir``."""
-    return _DATASETS.setdefault(data_dir, CookieDataset(data_dir))
+    n_workers = os.cpu_count() or 8 - 2
+    return _DATASETS.setdefault(data_dir, CookieDataset(data_dir, n_workers=n_workers))
 
 
 def _with_legacy_aliases(cookies: pd.DataFrame, sites: pd.DataFrame):
@@ -163,7 +148,7 @@ def save_figure(out_dir: str, *filenames: str, facecolor: str = BG) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Plotting helpers  (eliminate the boilerplate that repeats across every script)
+# Plotting helpers
 # ---------------------------------------------------------------------------
 
 
