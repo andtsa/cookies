@@ -1,6 +1,4 @@
 """
-analysis/enrich.py
-------------------
 Pure per-cookie derivation helpers, absorbed from the scattered scripts so the
 analysis package never imports ``scripts/``.
 

@@ -2,10 +2,10 @@
 
 ./.venv/bin/python3 -m crawler \
     --batch-size 30 \
-    --failed-sites="cookies_data/failed_sites.csv" \
     --timeout-ms=30000 \
     -O \
     -c 20 \
+    --limit 111111 \
+    --browsers "firefox"
     --category="popular" --country="Netherlands" -i ./list_websites_1M.csv
 
-    # -c 12 --force-concurrency \

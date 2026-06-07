@@ -1,7 +1,5 @@
 """
-analysis/sharing.py
--------------------
-Cross-site shared-cookie detection, absorbed from scripts/find_shared_cookies.py.
+Cross-site shared-cookie detection, from scripts/find_shared_cookies.py
 
 Operates on *occurrence dicts* (one per cookie, projected from the enriched
 frame) rather than re-reading files, so it shares the dataset's single parse and
@@ -12,7 +10,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from .enrich import HIGH_ENTROPY_BITS
+from .helpers import HIGH_ENTROPY_BITS
 
 
 def build_index(
