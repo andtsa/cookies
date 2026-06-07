@@ -1,23 +1,6 @@
-"""
-analysis._relational
---------------------
-``_RelationalMixin`` — the cross-site / cross-cookie analyses of
-:class:`~analysis.CookieDataset`: identifier sharing (:meth:`shared`),
-cookie-syncing detection (:meth:`syncing`), and cross-domain JS reads
-(:meth:`cross_domain_reads`), plus their cached-property shortcuts
-(:attr:`shared_groups`, :attr:`sync_events`).
-
-These are the expensive, full-dataset, relational passes that
-:attr:`~analysis.CookieDataset.classified_cookies` is built from — each scans
-every site (or every cookie occurrence) once and is memoised in ``self._cache``
-so repeat calls with the same parameters are free.
-
-Split into its own file purely for readability — at runtime this is just part
-of ``CookieDataset``; nothing here is meant to be used as a mixin elsewhere.
-"""
-
 from __future__ import annotations
 
+from collections import defaultdict
 from functools import cached_property
 
 from client.trackers.js import build_cookie_domain_index, find_cross_domain_cookies
@@ -27,7 +10,7 @@ from ..src.helpers import registered_domain
 
 
 class RelationalAccess:
-    # -------------------------------------------------------- relational analyses
+    # relational analyses
     def shared(
         self,
         *,
@@ -51,18 +34,29 @@ class RelationalAccess:
             "browser",
         ]
         occ = self.cookies[cols].copy()
-        # "site" identity = the crawled page (country+browser+domain) so the same
-        # site under two browsers isn't conflated.
-        occ["site"] = (
-            self.cookies["country"]
-            + "/"
-            + self.cookies["browser"]
-            + "/"
-            + self.cookies["domain"]
-        )
+        # Within a single (country, browser) crawl,
+        # "site" identity reduces to just the crawled domain
+        occ["site"] = self.cookies["domain"]
         occurrences = occ.to_dict("records")
-        index = sharing.build_index(occurrences, match_mode, self.name_families)
-        result = sharing.find_shared(index, min_sites, trackers_only, third_party_only)
+
+        # partition by (country, browser) *before* indexing
+        # so each crawl is judged on its own cross-site spread,
+        # not pooled with every other crawl in the dataset
+        by_crawl: dict[tuple[str, str], list[dict]] = defaultdict(list)
+        for o in occurrences:
+            by_crawl[(o["country"], o["browser"])].append(o)
+
+        result: list[dict] = []
+        for (country, browser), crawl_occs in by_crawl.items():
+            index = sharing.build_index(crawl_occs, match_mode, self.name_families)
+            groups = sharing.find_shared(
+                index, min_sites, trackers_only, third_party_only
+            )
+            for group in groups:
+                group["country"] = country
+                group["browser"] = browser
+            result.extend(groups)
+        result.sort(key=lambda r: r["site_count"], reverse=True)
         self._cache[ckey] = result
         return result
 
@@ -99,19 +93,32 @@ class RelationalAccess:
         ckey = ("cross_domain_reads", min_domains)
         if ckey in self._cache:
             return self._cache[ckey]
-        sessions = []
+
+        # partition sessions by (country, browser) so "read across N domains"
+        # reflects cross-site behaviour observed within a single crawl,
+        # not the same physical site being visited under
+        # different country/browser combinations
+        sessions_by_crawl: dict[tuple[str, str], list[dict]] = defaultdict(list)
         for site in self._raw_sites:
             ja = site.js_activity
             if not ja.get("reads"):
                 continue
-            sessions.append(
+            sessions_by_crawl[(site.country, site.browser)].append(
                 {
                     "visited_domain": registered_domain(site.target_url) or site.domain,
                     "reads": ja.get("reads", []),
                     "writes": ja.get("writes", []),
                 }
             )
-        index = build_cookie_domain_index(sessions)
-        result = find_cross_domain_cookies(index, min_domains=min_domains)
+
+        result: list[dict] = []
+        for (country, browser), sessions in sessions_by_crawl.items():
+            index = build_cookie_domain_index(sessions)
+            groups = find_cross_domain_cookies(index, min_domains=min_domains)
+            for group in groups:
+                group["country"] = country
+                group["browser"] = browser
+            result.extend(groups)
+        result.sort(key=lambda r: r["domain_count"], reverse=True)
         self._cache[ckey] = result
         return result

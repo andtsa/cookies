@@ -113,7 +113,7 @@ class OutputFormat:
             set_by_url = network_ctx.get("set_by_request_url")
             set_by_js = js_writes_by_name.get(cookie_name)
 
-            # Flat setter fields — HTTP and JS paths have different shapes.
+            # Flat setter fields, HTTP and JS paths have different shapes.
             if set_by_url:
                 setter_type = "http"
                 setter_fields: dict[str, Any] = {
@@ -218,12 +218,6 @@ class OutputFormat:
                 round(num_trackers / len(cookies_out) * 100, 1) if cookies_out else 0.0
             )
 
-        # Pruned request log:
-        #   - drop cookies_sent (always empty in practice)
-        #   - drop status (not used in any analysis)
-        #   - omit document_url when it equals target_url (redundant for ~all requests)
-        #   - omit initiator when empty string (sparse)
-        #   - omit redirect_chain when empty (only 2% of requests have redirects)
         target_url = output.target_url
         requests_out = []
         for r in request_log:
@@ -231,7 +225,6 @@ class OutputFormat:
                 "url": r.get("url", ""),
                 "type": r.get("type", ""),
             }
-            # Only write the easyprivacy field when it was computed during this crawl
             if "easyprivacy" in r:
                 req["easyprivacy"] = r["easyprivacy"]
             doc_url = r.get("document_url", "")

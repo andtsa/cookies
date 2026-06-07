@@ -1,15 +1,3 @@
-"""
-Single-source-of-truth implementation of "compute EasyPrivacy match data for
-one site", shared between :meth:`RawAccess._ep_data_for_site` (in-process) and
-the :class:`ProcessPoolExecutor` workers in
-:meth:`RawAccess._prefetch_ep_data_parallel`.
-
-Keeping this in one place matters: the in-process path and the parallel-worker
-path *must* compute identical results (same matcher, same memoisation
-semantics) or the two would silently diverge depending on whether prefetching
-ran. Factoring it out here makes that divergence structurally impossible.
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -85,3 +73,27 @@ def ep_data_for_site(
 def needs_live_ep_matching(site: "SiteRaw") -> bool:
     """True when at least one cookie lacks ``setter_ep_matched`` (new-format crawl)."""
     return any("setter_ep_matched" not in c for c in site.cookies)
+
+
+def needs_ep_data(site: "SiteRaw") -> bool:
+    """True when *anything* this site feeds into would call ``ep_data_for_site``.
+
+    There are two independent triggers for ``_ep_data_for_site`` —
+    ``_build_cookies`` calls it per-cookie via :func:`needs_live_ep_matching`
+    (cookie-level: any cookie missing ``setter_ep_matched``), and
+    ``_build_sites`` calls it separately for the aggregate
+    ``easyprivacy_requests``/``easyprivacy_pct`` columns whenever
+    ``summary.requests`` lacks those fields (site-level).
+
+    A site can fail the site-level check without failing the cookie-level one
+    (cookies annotated, but the crawler's per-site summary wasn't) — so
+    prefetch site-selection must check *both*, or such a site silently falls
+    through to a cold, single-threaded ``_ep_matcher`` build + live match in
+    the main process during ``_build_sites`` (which is exactly what produces
+    that one extra "EasyPrivacyMatcher ready" line after every worker reports
+    done).
+    """
+    if needs_live_ep_matching(site):
+        return True
+    sr = (site.data.get("summary", {}) or {}).get("requests", {}) or {}
+    return "easyprivacy" not in sr or "easyprivacy_pct" not in sr

@@ -18,30 +18,6 @@ def _ep_prefetch_worker(
     tracker_cache_dir: str,
     seed_match_cache: dict["ep_matching.MatchKey", bool],
 ) -> tuple[dict[str, "ep_matching.EpResult"], dict["ep_matching.MatchKey", bool]]:
-    """Module-level (picklable) worker body for :meth:`RawAccess._prefetch_ep_data_parallel`.
-
-    Runs in a separate process: rebuilds a local ``TrackerList``/
-    ``EasyPrivacyMatcher`` from the on-disk ruleset cache (cheap — cached-file
-    read + parse, no recomputation/network), re-loads each assigned site from
-    its JSON path, and computes EP data via the *same* shared
-    :func:`ep_matching.ep_data_for_site` the in-process path uses — so results
-    are guaranteed identical regardless of whether prefetching ran.
-
-    ``seed_match_cache`` is the parent's *persisted* memo (loaded from disk —
-    see :mod:`analysis.src.ep_cache`), copied into this worker's local cache
-    before it starts. Without this, a warm on-disk memo would sit unused in the
-    parent while every worker redundantly recomputes verdicts it already knows
-    — defeating the whole point of persistence whenever prefetching is also
-    enabled. The one-time pickle/IPC cost of handing over the seed is dwarfed
-    by the ~3.5k-regex-per-request scans it lets the worker skip.
-
-    Returns small, picklable dicts keyed by ``str(path)`` / the match-memo
-    triple — *only the new entries this worker discovered* (the seed is not
-    echoed back, since the parent already has it) — ready for the parent to
-    merge into ``_ep_cache``/``_ep_match_cache``. Batches are pre-grouped by
-    site domain so a worker's local cache also captures the cross-(country,
-    browser) repetition for the sites that matter most.
-    """
     from client.trackers import Detections, TrackerList
     from client.trackers.matcher import EasyPrivacyMatcher
 
@@ -184,31 +160,6 @@ class RawAccess:
         return result
 
     def _prefetch_ep_data_parallel(self, sites: list["SiteRaw"]) -> None:
-        """Warm ``_ep_cache``/``_ep_match_cache`` for ``sites`` using a process pool.
-
-        Why this — and not parallelising all of ``_build_cookies`` — is the
-        right scope: ``CookieDataset``, ``SiteRaw`` payloads, and a matcher full
-        of compiled regexes aren't cleanly/cheaply picklable across a process
-        boundary, and the EP-matching step is *the* bottleneck (96% of runtime
-        per profiling) and is embarrassingly parallel — each site's matching is
-        independent. So workers rebuild a matcher locally from the on-disk
-        ruleset cache (cheap: cached-file read + parse, no network), process a
-        batch of site paths with the exact same shared
-        :func:`ep_matching.ep_data_for_site` logic, and hand back small,
-        picklable dicts that this method merges. The existing single-threaded
-        ``_build_cookies``/``_build_sites`` loops then simply find ``_ep_cache``
-        already warm and skip the expensive path entirely.
-
-        Sites are grouped by ``domain`` (the slug shared across every
-        country×browser re-visit of the same site — see ``__init__``'s notes on
-        the ``{country}/{browser}/{site}`` layout) and whole groups are handed
-        to the same worker, so that worker's *local* match-cache captures the
-        cross-(country, browser) repetition for that site too — not just
-        cross-site overlap.
-
-        No-op unless ``n_workers > 1`` and there's enough work to amortise pool
-        start-up cost (each worker re-parses the EasyPrivacy list once).
-        """
         needing = [s for s in sites if s.path not in self._ep_cache]
         if not needing:
             return
@@ -230,10 +181,6 @@ class RawAccess:
 
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
-        # Seed every worker from the persisted memo (loaded lazily here, which
-        # also prints the "loaded N cached verdicts" line up front) — otherwise
-        # a warm on-disk cache would sit unused in this process while workers
-        # redundantly recompute verdicts it already has. See _ep_prefetch_worker.
         seed = dict(self._ep_match_cache)
         print(
             f"[CookieDataset] pre-fetching EasyPrivacy match data for "
