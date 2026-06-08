@@ -228,8 +228,12 @@ def get_error_reason(error: BaseException) -> tuple[str, str]:
 
     # Chromium/Chrome/Edge/Brave style: "net::ERR_NAME_NOT_RESOLVED"
     chromium_match = re.search(r"net::(ERR_[A-Z_]+)", msg)
-    # Firefox/WebKit (gecko) style: "NS_ERROR_UNKNOWN_HOST", "NS_ERROR_NET_TIMEOUT", ...
-    firefox_match = re.search(r"(NS_ERROR_[A-Z_]+)", msg)
+    # Firefox/WebKit (gecko/NSS) style error families:
+    #   NS_ERROR_UNKNOWN_HOST, NS_ERROR_NET_TIMEOUT (networking)
+    #   SSL_ERROR_BAD_CERT_DOMAIN, SSL_ERROR_NO_CYPHER_OVERLAP (SSL/TLS security/sslerr.h)
+    #   SEC_ERROR_EXPIRED_CERTIFICATE, SEC_ERROR_UNKNOWN_ISSUER (NSS security/secerr.h)
+    #   MOZILLA_PKIX_ERROR_* (gecko's PKIX certificate-verification layer)
+    firefox_match = re.search(r"((?:NS|SSL|SEC|MOZILLA_PKIX)_ERROR_[A-Z_]+)", msg)
 
     msg = msg.strip()[:100].replace("\n", " ")
     if chromium_match:
