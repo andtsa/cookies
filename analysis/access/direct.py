@@ -10,14 +10,24 @@ from ..src import ep_cache, ep_matching
 from ..src.loading import load_site, load_site_lists, site_paths
 from ..src.records import SiteRaw
 
+# Per-worker-process global, populated exactly once by `_ep_pool_init` (the
+# pool's `initializer=`) rather than rebuilt on every task. Building an
+# EasyPrivacyMatcher means parsing ~56k filter-list rules and compiling ~3.5k
+# regexes — too expensive to redo per chunk, but it only needs to happen once
+# per *process* (worker processes are reused across many chunk submissions).
+_worker_matcher = None
 
-def _ep_prefetch_worker(
-    path_strs: list[str],
-    data_dir: str,
-    tracker_list_names: list[str],
-    tracker_cache_dir: str,
-    seed_match_cache: dict["ep_matching.MatchKey", bool],
-) -> tuple[dict[str, "ep_matching.EpResult"], dict["ep_matching.MatchKey", bool]]:
+
+def _ep_pool_init(tracker_cache_dir: str, tracker_list_names: list[str]) -> None:
+    """``ProcessPoolExecutor`` initializer: build this process's matcher once.
+
+    Runs a single time when each worker process starts, before it accepts any
+    chunks. The resulting :class:`EasyPrivacyMatcher` — including its internal
+    candidate-cache, the part profiling shows actually dominates ``match()``
+    cost (see the matcher's docstring) — then lives for the lifetime of the
+    process and is reused across every chunk that process handles.
+    """
+    global _worker_matcher
     from client.trackers import Detections, TrackerList
     from client.trackers.matcher import EasyPrivacyMatcher
 
@@ -26,10 +36,15 @@ def _ep_prefetch_worker(
         cache_dir=tracker_cache_dir,
         trackers={Detections[name] for name in tracker_list_names},
     )
-    matcher = EasyPrivacyMatcher(tl._easyprivacy)
+    _worker_matcher = EasyPrivacyMatcher(tl._easyprivacy)
 
-    seed_keys = frozenset(seed_match_cache)
-    local_match_cache: dict[ep_matching.MatchKey, bool] = dict(seed_match_cache)
+
+def _ep_prefetch_chunk(
+    path_strs: list[str],
+    data_dir: str,
+) -> tuple[dict[str, "ep_matching.EpResult"], dict["ep_matching.MatchKey", bool]]:
+    assert _worker_matcher is not None, "pool initializer did not run"
+    local_match_cache: dict[ep_matching.MatchKey, bool] = {}
     ep_results: dict[str, "ep_matching.EpResult"] = {}
 
     for path_str in path_strs:
@@ -38,11 +53,10 @@ def _ep_prefetch_worker(
         if site is None:
             continue
         ep_results[path_str] = ep_matching.ep_data_for_site(
-            site, matcher, local_match_cache
+            site, _worker_matcher, local_match_cache
         )
 
-    new_entries = {k: v for k, v in local_match_cache.items() if k not in seed_keys}
-    return ep_results, new_entries
+    return ep_results, local_match_cache
 
 
 class RawAccess:
@@ -172,35 +186,48 @@ class RawAccess:
             by_domain.setdefault(s.domain, []).append(s)
         groups = sorted(by_domain.values(), key=len, reverse=True)
 
-        batches: list[list[str]] = [[] for _ in range(n)]
-        for i, group in enumerate(groups):
-            batches[i % n].extend(str(s.path) for s in group)
-        batches = [b for b in batches if b]
-        if len(batches) <= 1:
+        flat: list[str] = [str(s.path) for group in groups for s in group]
+        chunk_size = max(1, min(self.ep_chunk_size or 200, len(flat)))
+        chunks = [flat[i : i + chunk_size] for i in range(0, len(flat), chunk_size)]
+        if len(chunks) <= 1:
             return
 
+        import multiprocessing
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
-        seed = dict(self._ep_match_cache)
+        # Force "spawn" rather than the platform default ("fork" on Linux).
+        # By this point self._raw_sites has already loaded every site's full
+        # parsed JSON into the parent's heap (often many GB at production
+        # scale). A forked child shares that via copy-on-write at first, but
+        # CPython bumps refcounts on every object it touches, including while
+        # just starting up / running GC over inherited structures, so those
+        # pages get copied almost immediately, ballooning each child toward the
+        # size of the *entire parent heap* before it does any real work. A
+        # spawned child starts with a clean interpreter and only receives the
+        # small, explicit arguments passed to submit()/initargs below.
+        ctx = multiprocessing.get_context("spawn")
+
         print(
             f"[CookieDataset] pre-fetching EasyPrivacy match data for "
-            f"{len(needing):,} sites across {len(batches)} worker process(es)"
-            + (f" (seeding each from {len(seed):,} cached verdicts)" if seed else "")
-            + "…"
+            f"{len(needing):,} sites across {n} worker process(es) "
+            f"({len(chunks):,} chunks of ≤{chunk_size} sites — "
+            f"bounded per-task memory, matcher built once per process)…"
         )
         tracker_list_names = sorted(d.name for d in self.tracker_lists)
         n_done = 0
-        with ProcessPoolExecutor(max_workers=len(batches)) as pool:
+        new_since_checkpoint = 0
+        sites_since_log = 0
+        CHECKPOINT_EVERY_NEW_VERDICTS = 50_000
+        LOG_EVERY_SITES = max(chunk_size * 5, 1000)
+        with ProcessPoolExecutor(
+            max_workers=n,
+            mp_context=ctx,
+            initializer=_ep_pool_init,
+            initargs=(self.tracker_cache_dir, tracker_list_names),
+        ) as pool:
             futures = [
-                pool.submit(
-                    _ep_prefetch_worker,
-                    batch,
-                    self.data_dir,
-                    tracker_list_names,
-                    self.tracker_cache_dir,
-                    seed,
-                )
-                for batch in batches
+                pool.submit(_ep_prefetch_chunk, chunk, self.data_dir)
+                for chunk in chunks
             ]
             for fut in as_completed(futures):
                 ep_results, match_additions = fut.result()
@@ -209,12 +236,23 @@ class RawAccess:
                 if match_additions:
                     self._ep_match_cache.update(match_additions)
                     self._ep_match_cache_dirty = True
+                    new_since_checkpoint += len(match_additions)
                 n_done += 1
-                print(
-                    f"[CookieDataset]   worker {n_done}/{len(batches)} done "
-                    f"(+{len(ep_results):,} sites, "
-                    f"+{len(match_additions):,} new match verdicts)"
-                )
+                sites_since_log += len(ep_results)
+
+                if sites_since_log >= LOG_EVERY_SITES or n_done == len(chunks):
+                    print(
+                        f"[CookieDataset]   {n_done:,}/{len(chunks):,} chunks done "
+                        f"({len(self._ep_cache):,}/{len(needing):,} sites total, "
+                        f"{len(self._ep_match_cache):,} cached match verdicts)"
+                    )
+                    sites_since_log = 0
+
+                if new_since_checkpoint >= CHECKPOINT_EVERY_NEW_VERDICTS:
+                    self._persist_ep_match_cache()
+                    new_since_checkpoint = 0
+
+            self._persist_ep_match_cache()  # final checkpoint for the remainder
 
     @cached_property
     def _site_list_map(self) -> dict[str, tuple[str, int]]:

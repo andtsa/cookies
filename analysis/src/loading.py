@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import csv
 import glob
-import json
 import os
 from pathlib import Path
+
+import orjson
 
 from .helpers import registered_domain
 from .records import SiteRaw
@@ -32,9 +33,9 @@ def path_context(path: Path, data_dir: str | os.PathLike) -> tuple[str, str, str
 def load_site(path: Path, data_dir: str | os.PathLike) -> SiteRaw | None:
     """Read one site JSON into a :class:`SiteRaw` (None on parse failure)."""
     try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (json.JSONDecodeError, OSError):
+        with open(path, "rb") as fh:
+            data = orjson.loads(fh.read())
+    except (orjson.JSONDecodeError, OSError):
         return None
     country, browser, slug = path_context(path, data_dir)
     return SiteRaw(path=path, country=country, browser=browser, domain=slug, data=data)
