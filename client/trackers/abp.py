@@ -311,12 +311,17 @@ class NetworkRule:
     options: RuleOptions
     rule_type: RuleType = field(default=RuleType.NETWORK, init=False)
 
-    def to_regex(self) -> re.Pattern:
+    def to_regex_str(self) -> str:
         """
-        Compile the pattern to a Python regex.
+        Translate the ABP pattern to a regex *source string* (uncompiled).
 
-        Handles ``||``, ``|``, ``^``, and ``*`` wildcards.
-        Returns a compiled, case-insensitive pattern.
+        Handles ``||``, ``|``, ``^``, and ``*`` wildcards. This is the single
+        source of truth for the translation; :meth:`to_regex` compiles the
+        result for the stdlib-``re`` matching path, while alternative engines
+        (e.g. Hyperscan) consume the raw string directly. The produced subset —
+        literals, ``.*``, ``[^/]``, the ``(?:[/?&=;]|$)`` separator class, and
+        ``^``/``$`` anchors — is intentionally free of backreferences and
+        lookaround so it is accepted by RE2/Hyperscan as well as ``re``.
         """
         p = self.pattern
         # Strip anchors — we handle them explicitly
@@ -342,7 +347,16 @@ class NetworkRule:
         # * → wildcard
         p = p.replace("*", ".*")
 
-        return re.compile(start + p + end, re.IGNORECASE)
+        return start + p + end
+
+    def to_regex(self) -> re.Pattern:
+        """
+        Compile the pattern to a Python regex.
+
+        Handles ``||``, ``|``, ``^``, and ``*`` wildcards.
+        Returns a compiled, case-insensitive pattern.
+        """
+        return re.compile(self.to_regex_str(), re.IGNORECASE)
 
 
 @dataclass

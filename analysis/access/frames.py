@@ -6,8 +6,9 @@ import pandas as pd
 
 from client.trackers.entropy import entropy_metrics
 
-from ..src import cache, classifier, ep_matching
+from ..src import cache, classified_cache, classifier, ep_matching
 from ..src.helpers import lifetime_bucket, md5_value, party_type, registered_domain
+from ..src.progress import track
 
 # Popularity tiers for rank-based plots (top of list = most popular).
 RANK_TIERS = [
@@ -111,6 +112,13 @@ class FrameAccess:
         (It also *can't* be folded into the disk-cached half of ``cookies``
         without circularity: the relational passes themselves read the
         per-cookie frame to do their work.)
+
+        Like :attr:`cookies`, the labels + their three relational artifacts are
+        persisted to disk (see :mod:`analysis.src.classified_cache`) so the next
+        run — or the next plot script — loads them instead of recomputing. Only
+        the label columns are stored; they are re-joined to ``cookies`` (already
+        disk-cached) by position, sound because the key embeds the cookies
+        fingerprint.
         """
         df = self.cookies
         if df.empty:
@@ -118,9 +126,19 @@ class FrameAccess:
                 tracker_tier=pd.Categorical(
                     [], categories=classifier.TIERS, ordered=True
                 ),
-                looks_like_tracker=pd.Series(dtype="bool"),
+                tracker_like=pd.Series(dtype="bool"),
                 tracker_signals=pd.Series(dtype="object"),
             )
+
+        key = self._classified_key()
+        if self.cache_dir and not self.rebuild and key is not None:
+            cached = classified_cache.load(self.cache_dir, key)
+            if cached is not None:
+                labels, artifacts = cached
+                self._hydrate_relational(artifacts)
+                labels.index = df.index
+                return pd.concat([df, labels], axis=1)
+
         labels = classifier.classify_cookies(
             df,
             shared_groups=self.shared_groups,
@@ -128,7 +146,39 @@ class FrameAccess:
             cross_domain_reads=self.cross_domain_reads(),
             high_entropy_bits=self.high_entropy_bits,
         )
+
+        if self.cache_dir and key is not None:
+            classified_cache.save(
+                self.cache_dir,
+                key,
+                labels,
+                artifacts={
+                    "shared_groups": self.shared_groups,
+                    "sync_events": self.sync_events,
+                    "cross_domain_reads": self.cross_domain_reads(),
+                },
+                meta={"data_dir": self.data_dir, "n_cookies": int(len(df))},
+            )
         return pd.concat([df, labels], axis=1)
+
+    def _classified_key(self) -> str | None:
+        """Cache key for the annotation: the cookies fingerprint extended with
+        the label-affecting config (``sync_min_bits``/``high_entropy_bits``)."""
+        if not self.cache_dir:
+            return None
+        base_key = cache.dir_fingerprint(self.site_files(), self._config_repr)
+        extra = repr((self.sync_min_bits, self.high_entropy_bits))
+        return classified_cache.classified_fingerprint(base_key, extra)
+
+    def _hydrate_relational(self, artifacts: dict) -> None:
+        """Seed ``self._cache`` with loaded relational artifacts so later direct
+        calls to ``shared``/``syncing``/``cross_domain_reads`` are also warm
+        (keys must match :class:`RelationalAccess`' defaults)."""
+        self._cache[("shared", "name-md5", 2, False, False)] = artifacts[
+            "shared_groups"
+        ]
+        self._cache[("syncing", False)] = artifacts["sync_events"]
+        self._cache[("cross_domain_reads", 2)] = artifacts["cross_domain_reads"]
 
     # ------------------------------------------------------------ row builders
     def _build_cookies(self) -> pd.DataFrame:
@@ -152,7 +202,12 @@ class FrameAccess:
                 self._prefetch_ep_data_parallel(sites_needing_ep)
 
         rows: list[dict] = []
-        for site in self._raw_sites:
+        for site in track(
+            self._raw_sites,
+            desc="build cookies",
+            total=len(self._raw_sites),
+            unit=" sites",
+        ):
             target_url = site.target_url
             site_domain = registered_domain(target_url)
             target_host = target_url.split("//")[-1].split("/")[0]
@@ -255,7 +310,12 @@ class FrameAccess:
             if not cookies_df.empty
             else {}
         )
-        for site in self._raw_sites:
+        for site in track(
+            self._raw_sites,
+            desc="build sites",
+            total=len(self._raw_sites),
+            unit=" sites",
+        ):
             ctx = site.data.get("crawl_context") or {}
             country = ctx.get("country") or site.country
             browser = ctx.get("browser") or site.browser
