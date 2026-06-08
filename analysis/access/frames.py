@@ -53,8 +53,13 @@ class FrameAccess:
                 self._sites_frame = cached[1]
                 return cached[0]
 
-        cookies_df = self._build_cookies()
-        sites_df = self._build_sites(cookies_df)
+        try:
+            cookies_df = self._build_cookies()
+            sites_df = self._build_sites(cookies_df)
+        except KeyboardInterrupt:
+            print("\n[CookieDataset] Analysis interrupted by user.")
+            self._persist_ep_match_cache()
+            raise
         self._sites_frame = sites_df
 
         # Flush the EasyPrivacy match memo to disk if it grew this run — keyed
