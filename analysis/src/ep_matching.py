@@ -77,12 +77,8 @@ def ep_data_from_cache(
     """Like :func:`ep_data_for_site`, but returns ``None`` on the first cache miss
     instead of falling back to ``matcher.match()``.
 
-    Lets callers tell, cheaply (pure dict lookups, no regex), whether a site's
-    verdicts are *fully* covered by an already-warm ``match_cache`` — e.g. an
-    on-disk memo loaded at the start of a re-run. Sites that come back ``None``
-    are the only ones that actually need the (expensive, matcher-requiring)
-    parallel prefetch; sites that come back with a result can be recorded
-    directly, with zero matching work repeated.
+    Lets callers tell, cheaply, whether a site's
+    verdicts are *fully* covered by an already-warm ``match_cache``
     """
     requests = site.requests
     if not requests:
@@ -109,7 +105,7 @@ def ep_data_from_cache(
             rtype = r.get("type", "")
             is_match = match_cache.get((url, doc_url, rtype))
             if is_match is None:
-                return None  # genuine cache miss — needs the matcher
+                return None  # cache miss
             if is_match:
                 matched.add(url)
                 count += 1
