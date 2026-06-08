@@ -70,6 +70,55 @@ def ep_data_for_site(
     return matched_urls, count, pct
 
 
+def ep_data_from_cache(
+    site: "SiteRaw",
+    match_cache: dict[MatchKey, bool],
+) -> EpResult | None:
+    """Like :func:`ep_data_for_site`, but returns ``None`` on the first cache miss
+    instead of falling back to ``matcher.match()``.
+
+    Lets callers tell, cheaply (pure dict lookups, no regex), whether a site's
+    verdicts are *fully* covered by an already-warm ``match_cache`` — e.g. an
+    on-disk memo loaded at the start of a re-run. Sites that come back ``None``
+    are the only ones that actually need the (expensive, matcher-requiring)
+    parallel prefetch; sites that come back with a result can be recorded
+    directly, with zero matching work repeated.
+    """
+    requests = site.requests
+    if not requests:
+        return frozenset(), 0, 0.0
+
+    total = len(requests)
+
+    if any("easyprivacy" in r for r in requests):
+        matched_urls = frozenset(
+            r["url"]
+            for r in requests
+            if (r.get("easyprivacy") or {}).get("matched") and r.get("url")
+        )
+        count = sum(1 for r in requests if (r.get("easyprivacy") or {}).get("matched"))
+    else:
+        target_url = site.target_url
+        matched: set[str] = set()
+        count = 0
+        for r in requests:
+            url = r.get("url", "")
+            if not url:
+                continue
+            doc_url = r.get("document_url", "") or target_url
+            rtype = r.get("type", "")
+            is_match = match_cache.get((url, doc_url, rtype))
+            if is_match is None:
+                return None  # genuine cache miss — needs the matcher
+            if is_match:
+                matched.add(url)
+                count += 1
+        matched_urls = frozenset(matched)
+
+    pct = round(count / total * 100, 1) if total else 0.0
+    return matched_urls, count, pct
+
+
 def needs_live_ep_matching(site: "SiteRaw") -> bool:
     """True when at least one cookie lacks ``setter_ep_matched`` (new-format crawl)."""
     return any("setter_ep_matched" not in c for c in site.cookies)
