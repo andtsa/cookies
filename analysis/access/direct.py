@@ -47,14 +47,17 @@ def _ep_prefetch_chunk(
     local_match_cache: dict[ep_matching.MatchKey, bool] = {}
     ep_results: dict[str, "ep_matching.EpResult"] = {}
 
-    for path_str in path_strs:
-        path = Path(path_str)
-        site = load_site(path, data_dir)
-        if site is None:
-            continue
-        ep_results[path_str] = ep_matching.ep_data_for_site(
-            site, _worker_matcher, local_match_cache
-        )
+    try:
+        for path_str in path_strs:
+            path = Path(path_str)
+            site = load_site(path, data_dir)
+            if site is None:
+                continue
+            ep_results[path_str] = ep_matching.ep_data_for_site(
+                site, _worker_matcher, local_match_cache
+            )
+    except KeyboardInterrupt:
+        pass
 
     return ep_results, local_match_cache
 
@@ -257,30 +260,44 @@ class RawAccess:
                 pool.submit(_ep_prefetch_chunk, chunk, self.data_dir)
                 for chunk in chunks
             ]
-            for fut in as_completed(futures):
-                ep_results, match_additions = fut.result()
-                for path_str, result in ep_results.items():
-                    self._ep_cache[Path(path_str)] = result
-                if match_additions:
-                    self._ep_match_cache.update(match_additions)
-                    self._ep_match_cache_dirty = True
-                    new_since_checkpoint += len(match_additions)
-                n_done += 1
-                sites_since_log += len(ep_results)
+            try:
+                for fut in as_completed(futures):
+                    ep_results, match_additions = fut.result()
+                    for path_str, result in ep_results.items():
+                        self._ep_cache[Path(path_str)] = result
+                    if match_additions:
+                        self._ep_match_cache.update(match_additions)
+                        self._ep_match_cache_dirty = True
+                        new_since_checkpoint += len(match_additions)
+                    n_done += 1
+                    sites_since_log += len(ep_results)
 
-                if sites_since_log >= LOG_EVERY_SITES or n_done == len(chunks):
-                    print(
-                        f"[CookieDataset]   {n_done:,}/{len(chunks):,} chunks done "
-                        f"({len(self._ep_cache):,}/{len(needing):,} sites total, "
-                        f"{len(self._ep_match_cache):,} cached match verdicts)"
-                    )
-                    sites_since_log = 0
+                    if sites_since_log >= LOG_EVERY_SITES or n_done == len(chunks):
+                        print(
+                            f"[CookieDataset]   {n_done:,}/{len(chunks):,} chunks done "
+                            f"({len(self._ep_cache):,}/{len(needing):,} sites total, "
+                            f"{len(self._ep_match_cache):,} cached match verdicts)"
+                        )
+                        sites_since_log = 0
 
-                if new_since_checkpoint >= CHECKPOINT_EVERY_NEW_VERDICTS:
-                    self._persist_ep_match_cache()
-                    new_since_checkpoint = 0
+                    if new_since_checkpoint >= CHECKPOINT_EVERY_NEW_VERDICTS:
+                        self._persist_ep_match_cache()
+                        new_since_checkpoint = 0
 
-            self._persist_ep_match_cache()  # final checkpoint for the remainder
+                self._persist_ep_match_cache()  # final checkpoint for the remainder
+            except KeyboardInterrupt:
+                # shut down the pool and persist
+                # whatever progress made so far
+                print(
+                    "\n[CookieDataset] Interrupted by user. Saving progress and shutting down"
+                )
+                pool.shutdown(wait=True)
+                self._persist_ep_match_cache()
+                print(
+                    f"[CookieDataset] Saved {len(self._ep_cache):,} sites and "
+                    f"{len(self._ep_match_cache):,} match verdicts. Exiting."
+                )
+                raise
 
     @cached_property
     def _site_list_map(self) -> dict[str, tuple[str, int]]:

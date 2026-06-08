@@ -82,7 +82,7 @@ _DATASETS: dict[str, CookieDataset] = {}
 
 def dataset(data_dir: str) -> CookieDataset:
     """Return a memoised :class:`CookieDataset` for ``data_dir``."""
-    n_workers = (os.cpu_count() or 8) // 2
+    n_workers = (os.cpu_count() or 8) - 1
     return _DATASETS.setdefault(data_dir, CookieDataset(data_dir, n_workers=n_workers))
 
 
