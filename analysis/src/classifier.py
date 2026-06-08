@@ -49,6 +49,7 @@ from typing import Any
 import pandas as pd
 
 from .helpers import HIGH_ENTROPY_BITS
+from .progress import track
 
 # tiers
 NONE = "none"
@@ -242,7 +243,12 @@ def classify_cookies(
 
     tiers: list[str] = []
     signal_lists: list[list[str]] = []
-    for row in cookies_df.to_dict("records"):
+    for row in track(
+        cookies_df.to_dict("records"),
+        desc="classify cookies",
+        total=len(cookies_df),
+        unit=" cookies",
+    ):
         tier, signals = _classify_row(row, evidence, high_entropy_bits)
         tiers.append(tier)
         signal_lists.append(signals)
