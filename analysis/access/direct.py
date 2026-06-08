@@ -177,6 +177,34 @@ class RawAccess:
         needing = [s for s in sites if s.path not in self._ep_cache]
         if not needing:
             return
+
+        # Resolve "free" hits directly from the warm on-disk verdict memo
+        # before spinning up any pool. On a re-run this is the common case —
+        # _ep_cache (per-site results) isn't persisted, so every site looks
+        # "needing" again, but _ep_match_cache (per-URL verdicts) usually is
+        # already warm from the previous run. Without this check, every
+        # worker started from an empty local_match_cache and re-ran the
+        # expensive regex matching for verdicts the parent already had —
+        # burning CPU for nothing and re-persisting an unchanged memo on every
+        # checkpoint. ep_data_from_cache does pure dict lookups and bails
+        # (returns None) on the first genuine miss, so this pass is cheap.
+        still_needing: list["SiteRaw"] = []
+        for s in needing:
+            cached = ep_matching.ep_data_from_cache(s, self._ep_match_cache)
+            if cached is not None:
+                self._ep_cache[s.path] = cached
+            else:
+                still_needing.append(s)
+        if len(still_needing) < len(needing):
+            print(
+                f"[CookieDataset] {len(needing) - len(still_needing):,}/{len(needing):,} "
+                f"sites resolved straight from the warm verdict memo "
+                f"(no matching needed); {len(still_needing):,} remain"
+            )
+        needing = still_needing
+        if not needing:
+            return
+
         n = self.n_workers or 0
         if n <= 1 or len(needing) < max(n * 2, 8):
             return  # too little work to be worth spinning up a pool
