@@ -7,6 +7,7 @@ from client.trackers.js import build_cookie_domain_index, find_cross_domain_cook
 
 from ..src import sharing, syncing
 from ..src.helpers import registered_domain
+from ..src.progress import track
 
 
 class RelationalAccess:
@@ -69,7 +70,12 @@ class RelationalAccess:
         if ckey in self._cache:
             return self._cache[ckey]
         events = []
-        for site in self._raw_sites:
+        for site in track(
+            self._raw_sites,
+            desc="cookie syncing",
+            total=len(self._raw_sites),
+            unit=" sites",
+        ):
             result = syncing.analyze_site(
                 site.data, min_bits=self.sync_min_bits, deep=deep
             )
@@ -99,7 +105,12 @@ class RelationalAccess:
         # not the same physical site being visited under
         # different country/browser combinations
         sessions_by_crawl: dict[tuple[str, str], list[dict]] = defaultdict(list)
-        for site in self._raw_sites:
+        for site in track(
+            self._raw_sites,
+            desc="cross-domain reads",
+            total=len(self._raw_sites),
+            unit=" sites",
+        ):
             ja = site.js_activity
             if not ja.get("reads"):
                 continue

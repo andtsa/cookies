@@ -25,6 +25,7 @@ class CookieDataset(RawAccess, FrameAccess, AggregateAccess, RelationalAccess):
         rebuild: bool = False,
         n_workers: int | None = None,
         ep_chunk_size: int | None = None,
+        engine: str = "hyperscan",
     ) -> None:
         self.data_dir = str(data_dir)
         self.tracker_lists = set(
@@ -47,6 +48,13 @@ class CookieDataset(RawAccess, FrameAccess, AggregateAccess, RelationalAccess):
         self.rebuild = rebuild
         self.n_workers = n_workers
         self.ep_chunk_size = ep_chunk_size
+        # Matching engine for EasyPrivacy request matching: "hyperscan" (fast,
+        # Linux/x86_64; auto-falls back to "re" when the extension is absent) or
+        # "re" (stdlib reference). Deliberately *not* part of the cookies cache
+        # fingerprint: the two engines are validated to produce identical
+        # verdicts (tests/test_matcher_parity.py), so switching engines must not
+        # invalidate the on-disk frame cache.
+        self.engine = engine
         self._cache: dict[tuple, object] = {}
         self._ep_cache: dict = {}
         self._ep_match_cache_dirty = False

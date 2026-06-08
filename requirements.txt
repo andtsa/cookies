@@ -1,3 +1,13 @@
+## Fast multi-pattern matching engine for EasyPrivacy (analysis annotation).
+## Linux/x86_64 only; the matcher auto-falls back to the stdlib `re` engine
+## where it is unavailable (e.g. Windows dev boxes), so this is an optional,
+## platform-gated dependency.
+hyperscan>=0.7; platform_system == "Linux"
+
+## Optional progress bars across the annotation stages; the code soft-degrades
+## (runs bar-less) when it is not installed.
+tqdm>=4.65
+
 ## The following requirements were added by pip freeze:
 beautifulsoup4==4.14.3
 certifi==2026.4.22
