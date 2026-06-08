@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .progress import track
+
 # Bump when the enriched column schema changes so old caches are ignored.
 SCHEMA_VERSION = 1
 
@@ -25,7 +27,13 @@ def dir_fingerprint(paths: list[Path], config_repr: str) -> str:
     """Stable hex digest of the dataset state + config."""
     h = hashlib.blake2b(digest_size=16)
     h.update(f"v{SCHEMA_VERSION}\0{config_repr}\0".encode())
-    for p in sorted(paths):
+    for p in track(
+        sorted(paths),
+        desc="fingerprint",
+        total=len(paths),
+        unit=" files",
+        leave=False,
+    ):
         try:
             st = p.stat()
             h.update(f"{p}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
