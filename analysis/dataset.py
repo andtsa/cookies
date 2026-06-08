@@ -24,6 +24,7 @@ class CookieDataset(RawAccess, FrameAccess, AggregateAccess, RelationalAccess):
         cache_dir: str | None = ".analysis_cache",
         rebuild: bool = False,
         n_workers: int | None = None,
+        ep_chunk_size: int | None = None,
     ) -> None:
         self.data_dir = str(data_dir)
         self.tracker_lists = set(
@@ -45,6 +46,7 @@ class CookieDataset(RawAccess, FrameAccess, AggregateAccess, RelationalAccess):
         self.cache_dir = cache_dir
         self.rebuild = rebuild
         self.n_workers = n_workers
+        self.ep_chunk_size = ep_chunk_size
         self._cache: dict[tuple, object] = {}
         self._ep_cache: dict = {}
         self._ep_match_cache_dirty = False
