@@ -263,6 +263,8 @@ class FrameAccess:
                         "party_type": party_type(target_host, c.get("domain", "")),
                         "set_by_type": c.get("setter_type"),
                         "setter_url": setter_url,
+                        "setter_frame_url": c.get("setter_frame_url"),
+                        "setter_request_type": c.get("setter_request_type"),
                         "set_by_initiator": c.get("setter_initiator"),
                         "set_by_third_party": c.get("setter_third_party"),
                         "set_by_ep_matched": (

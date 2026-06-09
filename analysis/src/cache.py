@@ -20,7 +20,7 @@ import pandas as pd
 from .progress import track
 
 # Bump when the enriched column schema changes so old caches are ignored.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # added setter_frame_url, setter_request_type columns
 
 
 def dir_fingerprint(paths: list[Path], config_repr: str) -> str:
