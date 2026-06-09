@@ -1,270 +1,118 @@
+"""
+scripts/cross_reference_sync_reads.py
+-------------------------------------
+Cross-reference cookie *syncing* with cookie *reading*: for every confirmed sync
+of a cookie (its value sent to another domain), find third parties that ALSO
+read that same cookie name by JavaScript but were **not** a party to the sync —
+i.e. an external collector quietly picking up an identifier that two other
+domains were syncing.
+
+Both signals come from the analysis engine and its on-disk cache (warm them once
+with ``scripts/annotate.py``):
+
+    * confirmed syncs   -> CookieDataset.syncing()
+    * third-party reads -> CookieDataset.third_party_reads()
+
+Outputs (under ``--out``):
+    sync_reads_external_readers.json   one row per (synced cookie, external reader)
+and prints a short summary of the most active external readers.
+
+Usage
+-----
+    python scripts/cross_reference_sync_reads.py --data cookies_data
+    python scripts/cross_reference_sync_reads.py --data cookies_data --out plots/reads
+"""
+
 from __future__ import annotations
 
 import argparse
 import json
-from collections import defaultdict
+import os
+import sys
+from collections import Counter, defaultdict
 
-import tldextract
-
-
-# ---------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------
-
-def etld1(domain: str) -> str:
-    """
-    Convert:
-        www.google.com -> google.com
-        sub.example.co.uk -> example.co.uk
-    """
-    if not domain:
-        return ""
-
-    ext = tldextract.extract(domain)
-
-    return ".".join(
-        p
-        for p in [ext.domain, ext.suffix]
-        if p
-    )
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from analysis import CookieDataset  # noqa: E402
 
 
-def build_read_index(reads_file: str) -> dict[str, list[dict]]:
-    """
-    Build:
-
-        cookie_name -> [
+def build_read_index(ds: CookieDataset) -> dict[str, list[dict]]:
+    """cookie_name -> [{reader_domain, reader_script, visited_domain}, ...]."""
+    index: dict[str, list[dict]] = defaultdict(list)
+    for row in ds.third_party_reads():
+        index[row["cookie_name"]].append(
             {
-                reader_domain,
-                reader_script,
-                visited_domain
+                "reader_domain": row.get("reader_domain"),
+                "reader_script": row.get("reader_script"),
+                "visited_domain": row.get("visited_domain"),
             }
-        ]
-    """
-
-    with open(reads_file, encoding="utf-8") as f:
-        reads = json.load(f)
-
-    index = defaultdict(list)
-
-    for cookie_name, entries in reads.items():
-
-        for entry in entries:
-
-            index[cookie_name].append(
-                {
-                    "reader_domain": entry.get("reader_domain"),
-                    "reader_script": entry.get("reader_script"),
-                    "visited_domain": entry.get("visited_domain"),
-                }
-            )
-
+        )
     return dict(index)
 
 
-def sync_parties(site_domain: str, sync_entry: dict) -> set[str]:
-    """
-    Returns all domains directly involved in a sync.
+def find_external_readers(ds: CookieDataset) -> list[dict]:
+    """External-reader rows: a synced cookie read by a non-sync-party domain."""
+    read_index = build_read_index(ds)
+    external: list[dict] = []
 
-    Example:
-
-        site_domain = yandex.net
-        to_domain   = ya.ru
-
-    Returns:
-
-        {
-            "yandex.net",
-            "ya.ru"
-        }
-    """
-
-    parties = set()
-
-    if site_domain:
-        parties.add(etld1(site_domain))
-
-    to_domain = sync_entry.get("to_domain")
-
-    if to_domain:
-        parties.add(etld1(to_domain))
-
-    return parties
-
-
-# ---------------------------------------------------------
-# Main analysis
-# ---------------------------------------------------------
-
-def enrich_sync_data(
-    sync_file: str,
-    reads_file: str,
-):
-    """
-    Produces:
-
-        enriched_data
-        external_readers
-    """
-
-    read_index = build_read_index(reads_file)
-
-    with open(sync_file, encoding="utf-8") as f:
-        sync_data = json.load(f)
-
-    enriched = []
-    external_readers = []
-
-    for site_entry in sync_data:
-
-        syncing = site_entry.get("cookie_syncing", {})
-
-        site_domain = syncing.get("site_domain")
-
-        for bucket in ["confirmed", "candidates"]:
-
-            for sync_entry in syncing.get(bucket, []):
-
-                cookie_name = sync_entry.get("cookie_name")
-
-                if not cookie_name:
+    for event in ds.syncing():
+        site_domain = event.get("site_domain", "")
+        for ev in event.get("confirmed", []):
+            cookie_name = ev.get("cookie_name")
+            if not cookie_name:
+                continue
+            to_domain = ev.get("to_domain", "")
+            parties = {site_domain, to_domain}
+            for reader in read_index.get(cookie_name, []):
+                reader_domain = reader.get("reader_domain")
+                if not reader_domain or reader_domain in parties:
                     continue
-
-                readers = read_index.get(cookie_name, [])
-
-                sync_entry["readers"] = readers
-
-                involved_parties = sync_parties(
-                    site_domain,
-                    sync_entry,
+                external.append(
+                    {
+                        "site_domain": site_domain,
+                        "cookie_name": cookie_name,
+                        "sync_to": to_domain,
+                        "reader_domain": reader_domain,
+                        "reader_script": reader.get("reader_script"),
+                        "visited_domain": reader.get("visited_domain"),
+                    }
                 )
-
-                for reader in readers:
-
-                    reader_domain = reader.get(
-                        "reader_domain"
-                    )
-
-                    if not reader_domain:
-                        continue
-
-                    reader_etld = etld1(
-                        reader_domain
-                    )
-
-                    if reader_etld not in involved_parties:
-
-                        external_readers.append(
-                            {
-                                "site_domain": site_domain,
-                                "cookie_name": cookie_name,
-                                "sync_to": sync_entry.get(
-                                    "to_domain"
-                                ),
-                                "reader_domain": reader_domain,
-                                "reader_script": reader.get(
-                                    "reader_script"
-                                ),
-                                "visited_domain": reader.get(
-                                    "visited_domain"
-                                ),
-                            }
-                        )
-
-        enriched.append(site_entry)
-
-    return enriched, external_readers
+    return external
 
 
-# ---------------------------------------------------------
-# CLI
-# ---------------------------------------------------------
-
-def parse_args():
-
-    parser = argparse.ArgumentParser(
-        description=(
-            "Cross-reference cookie syncing with cookie readers."
-        )
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Cross-reference cookie syncing with third-party cookie reads.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-
-    parser.add_argument(
-        "sync_file",
-        help="cookie syncing JSON"
+    p.add_argument("--data", default="./cookies_data", help="crawl data directory")
+    p.add_argument("--out", default="./plots/reads", help="output directory")
+    p.add_argument(
+        "--engine",
+        default="hyperscan",
+        choices=["hyperscan", "re"],
+        help="EasyPrivacy matching engine (auto-falls back to re where needed).",
     )
-
-    parser.add_argument(
-        "reads_file",
-        help="reads_filtered.json"
-    )
-
-    parser.add_argument(
-        "--out-prefix",
-        default="sync_reads",
-        help="Output file prefix"
-    )
-
-    return parser.parse_args()
+    return p.parse_args()
 
 
-def main():
-
+def main() -> None:
     args = parse_args()
+    ds = CookieDataset(args.data, engine=args.engine)
 
-    print("Loading data...")
+    external = find_external_readers(ds)
 
-    enriched, external = enrich_sync_data(
-        args.sync_file,
-        args.reads_file,
-    )
+    os.makedirs(args.out, exist_ok=True)
+    out_path = os.path.join(args.out, "sync_reads_external_readers.json")
+    with open(out_path, "w", encoding="utf-8") as fh:
+        json.dump(external, fh, indent=2)
 
-    enriched_path = (
-        f"{args.out_prefix}_enriched.json"
-    )
-
-    external_path = (
-        f"{args.out_prefix}_external_readers.json"
-    )
-
-    with open(
-        enriched_path,
-        "w",
-        encoding="utf-8",
-    ) as f:
-
-        json.dump(
-            enriched,
-            f,
-            indent=2,
-        )
-
-    with open(
-        external_path,
-        "w",
-        encoding="utf-8",
-    ) as f:
-
-        json.dump(
-            external,
-            f,
-            indent=2,
-        )
-
-    print()
-    print(
-        f"Enriched sync data written to: "
-        f"{enriched_path}"
-    )
-
-    print(
-        f"External readers written to: "
-        f"{external_path}"
-    )
-
-    print(
-        f"External reader records: "
-        f"{len(external):,}"
-    )
+    print(f"Saved -> {out_path}")
+    print(f"External reader records: {len(external):,}")
+    if external:
+        top = Counter(r["reader_domain"] for r in external).most_common(20)
+        print("\n  Top external readers of synced cookies:")
+        for dom, n in top:
+            print(f"    {dom:<40}  {n:>6}")
 
 
 if __name__ == "__main__":

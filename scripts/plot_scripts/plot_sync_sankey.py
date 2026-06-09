@@ -11,11 +11,11 @@ other). Source and receiving domains are capped to the top-N by volume with the
 remainder folded into "(other)", so the diagram stays legible.
 
 Hand-rolled in matplotlib (no plotly dependency) so it shares the project theme and
-the PNG+PDF save pipeline. Reads the ``cookie_syncing`` annotations that
-scripts/find_cookie_syncing.py writes; see sync_subtypes.py for subtype derivation.
+the PNG+PDF save pipeline. Subtype rows come from the analysis engine
+(CookieDataset.sync_subtype_rows, cached by annotate.py); see sync_subtypes.py.
 
 Usage:
-    python scripts/plot_scripts/plot_sync_sankey.py --data cookies_data/chromium --out plots/syncing --top 12
+    python scripts/plot_scripts/plot_sync_sankey.py --data cookies_data --out plots/syncing --top 12
 """
 
 import argparse
@@ -191,7 +191,7 @@ def plot_sankey(data_dir: str, out_dir: str, top: int) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="./cookies_data/chromium")
+    parser.add_argument("--data", default="./cookies_data")
     parser.add_argument("--out", default="./plots/syncing")
     parser.add_argument("--top", type=int, default=12)
     args = parser.parse_args()

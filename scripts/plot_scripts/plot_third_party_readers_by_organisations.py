@@ -1,24 +1,38 @@
-import json
+"""
+Organizations Performing Third-Party Cookie Reads
+
+Rolls the reader domains up to their parent organization (Google properties,
+Meta, Microsoft, …) and ranks organizations by the number of distinct
+first-party websites on which any of their domains read cookies. Coverage is a
+*union* of websites per organization, so Google's many properties are not
+double-counted.
+
+Reader rows come from the analysis engine
+(:meth:`analysis.CookieDataset.third_party_reads`, cached by scripts/annotate.py).
+
+Usage:
+    python scripts/plot_scripts/plot_third_party_readers_by_organisations.py --data cookies_data --out plots/reads --top_n 15
+"""
+
+import os
+import sys
 from collections import defaultdict
 
-import pandas as pd
 import matplotlib.pyplot as plt
 
+sys.path.insert(0, os.path.dirname(__file__))
 from utils import (
     apply_theme,
+    dataset,
     save_figure,
-    ACCENT,
-COLORS
+    make_parser,
+    hbar_chart,
+    annotate_hbars,
+    gradient_colors,
+    DARK,
 )
 
-INPUT_FILE = "../../reads_filtered.json"
-OUT_DIR = "plots"
-
-
-# ------------------------------------------------------------------
-# Domain -> Organization mapping
-# ------------------------------------------------------------------
-
+# Reader domain -> parent organization.
 ORG_MAP = {
     # Google
     "googletagmanager.com": "Google",
@@ -30,34 +44,26 @@ ORG_MAP = {
     "google-analytics.com": "Google",
     "googletagservices.com": "Google",
     "google.com": "Google",
-
     # Microsoft
     "clarity.ms": "Microsoft",
     "bing.com": "Microsoft",
     "microsoft.com": "Microsoft",
-
     # Meta
     "facebook.net": "Meta",
     "facebook.com": "Meta",
     "fbcdn.net": "Meta",
-
     # Adobe
     "adobedtm.com": "Adobe",
-
     # LinkedIn
     "licdn.com": "LinkedIn",
-
     # Amazon
     "awswaf.com": "Amazon",
     "amazon-adsystem.com": "Amazon",
     "amazonaws.com": "Amazon",
-
     # Reddit
     "redditstatic.com": "Reddit",
-
     # Twitter / X
     "ads-twitter.com": "X",
-
     # Yandex
     "yandex.ru": "Yandex",
     "yastatic.net": "Yandex",
@@ -68,139 +74,73 @@ ORG_MAP = {
     "passport.yandex.ru": "Yandex",
     "an.yandex.ru": "Yandex",
     "ads6.adfox.ru": "Yandex",
-
     # VK / Mail.ru
     "mail.ru": "VK",
-
     # TrustArc
     "trustarc.com": "TrustArc",
-
     # OneTrust
     "cookielaw.org": "OneTrust",
-
     # Oracle
     "bluekai.com": "Oracle",
     "addthis.com": "Oracle",
 }
 
 
-# ------------------------------------------------------------------
-# Load data
-# ------------------------------------------------------------------
+def organization_coverage(data_dir: str) -> list[tuple[str, int]]:
+    """Return ``[(organization, distinct_site_count), ...]`` descending.
 
-def load_organization_coverage(path: str) -> pd.DataFrame:
+    Only mapped (known) organizations are kept; unmapped readers are dropped so
+    the chart shows named organizations rather than a giant "Other" bar.
     """
-    Computes:
-
-        organization -> number of distinct visited websites
-
-    Uses union of websites rather than summing domain counts,
-    preventing Google properties from being double-counted.
-    """
-
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-
-    org_sites = defaultdict(set)
-
-    for cookie_entries in data.values():
-
-        for entry in cookie_entries:
-
-            reader = entry.get("reader_domain")
-            site = entry.get("visited_domain")
-
-            if not reader or not site:
-                continue
-
-            org = ORG_MAP.get(reader, "Other")
-
-            org_sites[org].add(site)
-
-    rows = [
-        {
-            "organization": org,
-            "site_count": len(sites),
-        }
-        for org, sites in org_sites.items()
-    ]
-
-    return pd.DataFrame(rows)
+    org_sites: dict[str, set] = defaultdict(set)
+    for row in dataset(data_dir).third_party_reads():
+        reader = row.get("reader_domain")
+        site = row.get("visited_domain")
+        if not reader or not site:
+            continue
+        org = ORG_MAP.get(reader)
+        if org is None:
+            continue
+        org_sites[org].add(site)
+    pairs = [(o, len(sites)) for o, sites in org_sites.items()]
+    pairs.sort(key=lambda p: p[1], reverse=True)
+    return pairs
 
 
-# ------------------------------------------------------------------
-# Plot
-# ------------------------------------------------------------------
-
-def plot_organization_coverage(df: pd.DataFrame):
-
+def plot_organization_coverage(data_dir: str, out_dir: str, top_n: int = 15) -> None:
     apply_theme()
-
-    # Remove "Other"
-    df = df[df["organization"] != "Other"]
-
-    top = (
-        df.sort_values("site_count", ascending=False)
-        .head(15)
-        .sort_values("site_count")
-    )
+    pairs = organization_coverage(data_dir)
 
     fig, ax = plt.subplots(figsize=(10, 7))
-
-    colors = [
-        COLORS[i % len(COLORS)]
-        for i in range(len(top))
-    ]
-
-    bars = ax.barh(
-        top["organization"],
-        top["site_count"],
-        color=colors,
-    )
-
-    ax.set_title(
-        "Organizations Performing Third-Party Cookie Reads"
-    )
-
-    ax.set_xlabel("Distinct Websites")
-
-    ax.set_ylabel("Organization")
-
-    ax.grid(axis="x", alpha=0.3)
-
-    for bar in bars:
-
-        width = bar.get_width()
-
+    if not pairs:
         ax.text(
-            width,
-            bar.get_y() + bar.get_height() / 2,
-            f" {int(width)}",
-            va="center",
+            0.5, 0.5, "No third-party cookie reads from known organizations",
+            ha="center", va="center", transform=ax.transAxes, fontsize=14, color=DARK,
         )
+        ax.axis("off")
+        save_figure(
+            out_dir, "organization_cookie_readers.png", "organization_cookie_readers.pdf"
+        )
+        return
 
+    top = pairs[:top_n]
+    labels = [o for o, _ in top]
+    values = [c for _, c in top]
+
+    bars = hbar_chart(ax, labels, values, colors=gradient_colors(values))
+    annotate_hbars(ax, bars, [f"{v:,}" for v in values])
+    ax.set_title("Organizations Performing Third-Party Cookie Reads")
+    ax.set_xlabel("Distinct websites")
+    ax.set_ylabel("Organization")
+    ax.grid(axis="x", alpha=0.3)
     plt.tight_layout()
-
     save_figure(
-        OUT_DIR,
-        "organization_cookie_readers.png",
-        "organization_cookie_readers.pdf",
+        out_dir, "organization_cookie_readers.png", "organization_cookie_readers.pdf"
     )
 
-
-# ------------------------------------------------------------------
-# Main
-# ------------------------------------------------------------------
 
 if __name__ == "__main__":
-
-    df = load_organization_coverage(INPUT_FILE)
-
-    print(
-        df.sort_values(
-            "site_count",
-            ascending=False,
-        )
-    )
-
-    plot_organization_coverage(df)
+    parser = make_parser(__doc__, data="./cookies_data", out="./plots/reads")
+    parser.add_argument("--top_n", type=int, default=15)
+    args = parser.parse_args()
+    plot_organization_coverage(args.data, args.out, args.top_n)

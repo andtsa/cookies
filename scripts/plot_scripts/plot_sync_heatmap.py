@@ -6,11 +6,11 @@ shaded by the number of sync rows. Good for spotting which collector domains fav
 which mechanism (default columns = carrier), or how the confidence tiers / tracker
 status distribute across collectors (--cols).
 
-Reads the ``cookie_syncing`` annotations that scripts/find_cookie_syncing.py writes.
-See scripts/plot_scripts/sync_subtypes.py for how the subtypes are derived.
+Subtype rows come from the analysis engine (CookieDataset.sync_subtype_rows,
+cached by scripts/annotate.py); see scripts/plot_scripts/sync_subtypes.py.
 
 Usage:
-    python scripts/plot_scripts/plot_sync_heatmap.py --data cookies_data/chromium --out plots/syncing --top 20 --cols carrier
+    python scripts/plot_scripts/plot_sync_heatmap.py --data cookies_data --out plots/syncing --top 20 --cols carrier
 """
 
 import argparse
@@ -88,7 +88,7 @@ def plot_heatmap(data_dir: str, out_dir: str, top: int, cols: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="./cookies_data/chromium")
+    parser.add_argument("--data", default="./cookies_data")
     parser.add_argument("--out", default="./plots/syncing")
     parser.add_argument("--top", type=int, default=20)
     parser.add_argument("--cols", default="carrier", choices=list(ss.DIMENSIONS))

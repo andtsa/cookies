@@ -1,5 +1,6 @@
 import asyncio
 import csv
+import hashlib
 import os
 import re
 from typing import List, Optional
@@ -17,6 +18,7 @@ from .config import (
     Browser,
     BrowserConfig,
     CrawlConfig,
+    Site,
 )
 from .simple_playwright_client import SimplePlaywrightClient
 
@@ -53,29 +55,89 @@ class ClientAPI:
 
     @staticmethod
     async def run_for_page(
-        url: str,
+        site: Site,
         output: Outfile,
         cfg: BrowserConfig,
     ) -> None:
         client = ClientAPI().get_client(cfg=cfg)
 
-        async def behavior_callback(client_instance: Client):
-            await client_instance._behavior_non_interactive()
-
-        async def on_close_callback(client_instance: Client, output: Outfile):
-            await client_instance._on_close_get_cookies_snapshot(output)
-
         await client.visit_page(
-            url=url,
-            behavior=behavior_callback,
-            on_close=on_close_callback,
+            site=site,
             output=output,
         )
 
     @staticmethod
+    async def process_url(
+        site: Site,
+        browser_cfg: BrowserConfig,
+        crawl_cfg: CrawlConfig,
+    ) -> bool | None:
+        """Process a single URL: visit it and write the cookie snapshot to disk.
+
+        Returns:
+            None  — skipped (output file already exists)
+            True  — visited successfully
+            False — visit failed (error logged / written to failed_sites)
+        """
+        if not urlparse(site.url).scheme:
+            site.url = "https://" + site.url
+        netloc = urlparse(site.url).netloc or site.url
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", netloc) + ".json"
+        # shard into 256 subdirectories by hash to avoid 1M files in
+        # one directory, which can crash linux filesystems
+        shard = hashlib.md5(netloc.encode()).hexdigest()[:2]
+        specific_dir = (
+            f"{crawl_cfg.output_dir}/{browser_cfg.browser_type.value}/{shard}"
+        )
+        output_path = f"{specific_dir}/{safe_name}"
+
+        if not crawl_cfg.overwrite and os.path.exists(output_path):
+            print(f"[{netloc}] skipping (already collected)")
+            return None
+
+        print(f"[{netloc}] crawling -> {output_path}")
+        result = True
+        try:
+            await ClientAPI.run_for_page(
+                site=site,
+                output=Outfile(
+                    dir=specific_dir,
+                    name=safe_name,
+                    target_url=site.url,
+                    country=crawl_cfg.country,
+                    browser=browser_cfg.browser_type.value,
+                    rank=site.rank,
+                    category=site.category,
+                ),
+                cfg=browser_cfg,
+            )
+        except Exception as e:
+            result = False
+            print(f"[{netloc}] error: {e}")
+            if crawl_cfg.failed_sites_path:
+                try:
+                    failed_dir = os.path.join(
+                        crawl_cfg.output_dir, browser_cfg.browser_type.value
+                    )
+                    os.makedirs(failed_dir, exist_ok=True)
+                    _write_failed_site(
+                        path=os.path.join(failed_dir, crawl_cfg.failed_sites_path),
+                        site=site,
+                        error=e,
+                    )
+                except OSError as write_err:
+                    print(
+                        f"[{netloc}] warning: could not write to failed_sites file: {write_err}\n    original exception: {e}"
+                    )
+
+        if crawl_cfg.sleep_between_ms > 0:
+            await asyncio.sleep(crawl_cfg.sleep_between_ms / 1000)
+
+        return result
+
+    @staticmethod
     async def process_batch(
-        websites: List[str],
-        output_dir: str = "cookies_data",
+        websites: List[Site],
         browser_cfg: Optional[BrowserConfig] = None,
         crawl_cfg: Optional[CrawlConfig] = None,
     ) -> None:
@@ -84,23 +146,13 @@ class ClientAPI:
         if crawl_cfg is None:
             crawl_cfg = CrawlConfig()
 
-        # Playwright internally creates fire-and-forget asyncio tasks for CDP
-        # protocol calls (Channel.send). These tasks can fail with Playwright
-        # protocol errors (e.g. TargetClosedError when the browser closes, or
-        # "object has been collected to prevent unbounded heap growth" under
-        # memory pressure) and emit "Task exception was never retrieved"
-        # warnings. All are expected, benign noise — suppress them.
         loop = asyncio.get_event_loop()
         _original_handler = loop.get_exception_handler()
 
         def _suppress_playwright_channel_errors(
             loop: asyncio.AbstractEventLoop, context: dict
         ) -> None:
-            if context.get(
-                "message"
-            ) == "Task exception was never retrieved" and isinstance(
-                context.get("exception"), PlaywrightError
-            ):
+            if isinstance(context.get("exception"), PlaywrightError):
                 return
             (
                 _original_handler(loop, context)
@@ -110,53 +162,25 @@ class ClientAPI:
 
         loop.set_exception_handler(_suppress_playwright_channel_errors)
 
-        urls = websites[: crawl_cfg.limit] if crawl_cfg.limit is not None else websites
+        sites = websites[: crawl_cfg.limit] if crawl_cfg.limit is not None else websites
         semaphore = asyncio.Semaphore(crawl_cfg.concurrency)
 
-        async def process_one(url: str) -> None:
+        async def process_one(site: Site) -> None:
             async with semaphore:
-                if not urlparse(url).scheme:
-                    url = "https://" + url
-                netloc = urlparse(url).netloc or url
-                safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", netloc) + ".json"
-                specific_dir = f"{output_dir}/{browser_cfg.browser_type.value}"
-                output_path = f"{specific_dir}/{safe_name}"
+                await ClientAPI.process_url(site, browser_cfg, crawl_cfg)
 
-                if not crawl_cfg.overwrite and os.path.exists(output_path):
-                    print(f"[{netloc}] skipping (already collected)")
-                    return
-
-                print(f"[{netloc}] crawling -> {output_path}")
-                try:
-                    await ClientAPI.run_for_page(
-                        url=url,
-                        output=Outfile(
-                            dir=specific_dir, name=safe_name, target_url=url
-                        ),
-                        cfg=browser_cfg,
-                    )
-                except Exception as e:
-                    print(f"[{netloc}] error: {e}")
-                    if crawl_cfg.failed_sites_path:
-                        with open(
-                            crawl_cfg.failed_sites_path, "a", encoding="utf-8"
-                        ) as f:
-                            f.write(f"{url}\n")
-
-                if crawl_cfg.sleep_between_ms > 0:
-                    await asyncio.sleep(crawl_cfg.sleep_between_ms / 1000)
-
-        await asyncio.gather(*[process_one(url) for url in urls])
+        await asyncio.gather(
+            *[process_one(site) for site in sites], return_exceptions=True
+        )
 
     @staticmethod
     async def process_batch_from_csv(
         source_file_path: str,
-        output_dir: str = "cookies_data",
         browser_cfg: Optional[BrowserConfig] = None,
         crawl_cfg: Optional[CrawlConfig] = None,
     ) -> None:
         _URL_COLUMNS = ("url", "URL", "website", "Website", "domain", "Domain")
-        websites: List[str] = []
+        websites: List[Site] = []
         with open(source_file_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             url_col = next(
@@ -164,10 +188,10 @@ class ClientAPI:
                 None,
             )
             if url_col is not None:
-                for row in reader:
+                for i, row in enumerate(reader):
                     value = row.get(url_col, "").strip()
                     if value:
-                        websites.append(value)
+                        websites.append(Site(url=value, rank=i, category=None))
             else:
                 f.seek(0)
                 for i, row in enumerate(csv.reader(f)):
@@ -176,11 +200,53 @@ class ClientAPI:
                     if len(row) >= 2:
                         value = row[1].strip()
                         if value:
-                            websites.append(value)
+                            websites.append(Site(url=value, rank=i, category=None))
 
         await ClientAPI.process_batch(
             websites=websites,
-            output_dir=output_dir,
             browser_cfg=browser_cfg,
             crawl_cfg=crawl_cfg,
         )
+
+
+def _write_failed_site(path: str, site: Site, error: BaseException) -> None:
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        reason, msg = get_error_reason(error)
+        writer.writerow(
+            [
+                site.rank,
+                site.url,
+                reason,
+                msg,
+            ]
+        )
+
+
+def get_error_reason(error: BaseException) -> tuple[str, str]:
+    msg = str(error)
+
+    # Chromium/Chrome/Edge/Brave style: "net::ERR_NAME_NOT_RESOLVED"
+    chromium_match = re.search(r"net::(ERR_[A-Z_]+)", msg)
+    # Firefox/WebKit (gecko/NSS) style error families:
+    #   NS_ERROR_UNKNOWN_HOST, NS_ERROR_NET_TIMEOUT (networking)
+    #   SSL_ERROR_BAD_CERT_DOMAIN, SSL_ERROR_NO_CYPHER_OVERLAP (SSL/TLS security/sslerr.h)
+    #   SEC_ERROR_EXPIRED_CERTIFICATE, SEC_ERROR_UNKNOWN_ISSUER (NSS security/secerr.h)
+    #   MOZILLA_PKIX_ERROR_* (gecko's PKIX certificate-verification layer)
+    firefox_match = re.search(r"((?:NS|SSL|SEC|MOZILLA_PKIX)_ERROR_[A-Z_]+)", msg)
+
+    msg = msg.strip()[:100].replace("\n", " ")
+    if chromium_match:
+        return chromium_match.group(1), "network error"
+    if firefox_match:
+        return firefox_match.group(1), "network error"
+
+    if "Page.goto" in msg:
+        return "TIMEOUT", "Page.goto"
+
+    if isinstance(error, asyncio.TimeoutError):
+        return "ASYNCIO_TIMEOUT" if msg else "TIMEOUT", msg
+    if "Timeout" in msg:
+        return "TIMEOUT", msg
+
+    return type(error).__name__, msg

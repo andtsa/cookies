@@ -96,8 +96,11 @@ def load_occurrences(data_dir: str) -> list[dict]:
             )
 
     if not occurrences:
-        print(f"[!] No cookies with md5_value found in '{data_dir}'. "
-              f"Did you run process_cookies.py first?", file=sys.stderr)
+        print(
+            f"[!] No cookies with md5_value found in '{data_dir}'. "
+            f"Did you run process_cookies.py first?",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     return occurrences
@@ -236,9 +239,7 @@ def print_report(results: list[dict], min_sites: int, match_mode: str) -> None:
 
     print(f"\n{'='*70}")
     print(f"  Shared cookies (mode={match_mode}, across >={min_sites} sites)")
-    print(
-        f"  Found {total_unique} group(s) - {tracker_count} involve a tracker cookie"
-    )
+    print(f"  Found {total_unique} group(s) - {tracker_count} involve a tracker cookie")
     print(f"{'='*70}\n")
 
     for i, r in enumerate(results, 1):

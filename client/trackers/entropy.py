@@ -69,9 +69,7 @@ def shannon_entropy(value: str) -> float:
         return 0.0
     total = len(component)
     freq = Counter(component)
-    return -sum(
-        (count / total) * math.log2(count / total) for count in freq.values()
-    )
+    return -sum((count / total) * math.log2(count / total) for count in freq.values())
 
 
 def total_bits(value: str) -> float:

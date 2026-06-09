@@ -7,12 +7,12 @@ stacked by a chosen subtype dimension. Default stacks by evidence **tier**
 layer into the confidence ladder; switch with --by to break down instead by the
 carrier mechanism, the receiving-party tracker status, or the value encoding.
 
-Reads the ``cookie_syncing`` annotations that scripts/find_cookie_syncing.py writes
-(run it with --annotate first). See scripts/plot_scripts/sync_subtypes.py for how the
-subtypes are derived.
+Subtype rows come from the analysis engine (CookieDataset.sync_subtype_rows,
+cached by scripts/annotate.py). See scripts/plot_scripts/sync_subtypes.py for how
+the subtypes are derived.
 
 Usage:
-    python scripts/plot_scripts/plot_sync_subtypes_bar.py --data cookies_data/chromium --out plots/syncing --top 15 --by tier
+    python scripts/plot_scripts/plot_sync_subtypes_bar.py --data cookies_data --out plots/syncing --top 15 --by tier
 """
 
 import argparse
@@ -93,7 +93,7 @@ def plot_bar(data_dir: str, out_dir: str, top: int, by: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="./cookies_data/chromium")
+    parser.add_argument("--data", default="./cookies_data")
     parser.add_argument("--out", default="./plots/syncing")
     parser.add_argument("--top", type=int, default=15)
     parser.add_argument("--by", default="tier", choices=list(ss.DIMENSIONS))

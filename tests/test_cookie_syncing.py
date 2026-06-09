@@ -1,19 +1,17 @@
-"""Unit tests for scripts/find_cookie_syncing.py analyze_site()."""
+"""Unit tests for the cookie-syncing detector in analysis.src.syncing.
 
-import importlib.util
+Detection (value matching + the PATH/endpoint regex layer) now lives in the
+analysis engine; scripts/find_cookie_syncing.py is only a thin reporting CLI over
+it. These tests exercise the engine's ``analyze_site`` / ``PathSyncDetector``.
+"""
+
 import os
 import sys
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, ROOT)
 
-# Load the script module by path (scripts/ is not a package).
-_spec = importlib.util.spec_from_file_location(
-    "find_cookie_syncing",
-    os.path.join(ROOT, "scripts", "find_cookie_syncing.py"),
-)
-fcs = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(fcs)
+from analysis.src import syncing as fcs  # noqa: E402
 
 
 UID = "a7x9f228j991pqzm2c4b8"

@@ -16,3 +16,8 @@ plots/
 .tracker_cache.zip
 .env
 failed_sites.txt
+profile_output/
+*.log
+.analysis_cache/
+*.7z
+vpns/

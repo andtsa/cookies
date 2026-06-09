@@ -21,31 +21,33 @@ import sys
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(__file__))
-from utils import apply_theme, save_figure, BG, DARK, LIGHT, ACCENT, ACCENT2, MID
-
-# Import the cross-site analysis (scripts/ is on sys.path two levels up).
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from scripts.find_shared_cookies import build_index, find_shared, load_occurrences
+from utils import (
+    apply_theme,
+    dataset,
+    save_figure,
+    BG,
+    DARK,
+    LIGHT,
+    ACCENT,
+    ACCENT2,
+    MID,
+)
 
 _MATCH_MODES = ["name-md5", "value-entropy", "name-cluster"]
 _MODE_COLORS = {"name-md5": MID, "value-entropy": ACCENT2, "name-cluster": ACCENT}
-
-
-def _shared_for_mode(occurrences, mode, min_sites):
-    index = build_index(occurrences, mode)
-    return find_shared(index, min_sites=min_sites)
 
 
 def plot_shared_cookies(
     data_dir: str, out_dir: str, top_n: int = 20, min_sites: int = 2
 ) -> None:
     apply_theme()
-    occurrences = load_occurrences(data_dir)
+    ds = dataset(data_dir)
 
     # Panel A uses name-cluster (the most inclusive) so families show their real
-    # cross-site spread; Panels B compares all three modes.
+    # cross-site spread; Panel B compares all three modes. The dataset computes
+    # the grouping (no processed-data prerequisite, no duplicated logic).
     results_by_mode = {
-        mode: _shared_for_mode(occurrences, mode, min_sites) for mode in _MATCH_MODES
+        mode: ds.shared(match_mode=mode, min_sites=min_sites) for mode in _MATCH_MODES
     }
     panel_a = results_by_mode["name-cluster"][:top_n]
 
@@ -75,11 +77,20 @@ def plot_shared_cookies(
             )
         axA.set_xlim(0, max(counts) * 1.25)
     else:
-        axA.text(0.5, 0.5, "No cross-site identifiers found", ha="center", va="center",
-                 transform=axA.transAxes, color=DARK)
+        axA.text(
+            0.5,
+            0.5,
+            "No cross-site identifiers found",
+            ha="center",
+            va="center",
+            transform=axA.transAxes,
+            color=DARK,
+        )
 
     axA.set_xlabel("Distinct sites the identifier appears on", fontsize=13)
-    axA.set_title(f"Top {top_n} cross-site identifiers (name-cluster)", fontsize=15, pad=12)
+    axA.set_title(
+        f"Top {top_n} cross-site identifiers (name-cluster)", fontsize=15, pad=12
+    )
     axA.spines[["top", "right"]].set_visible(False)
     axA.grid(axis="x", alpha=0.3)
 
@@ -99,7 +110,12 @@ def plot_shared_cookies(
     mode_counts = [len(results_by_mode[m]) for m in _MATCH_MODES]
     mode_colors = [_MODE_COLORS[m] for m in _MATCH_MODES]
     bbars = axB.bar(
-        _MATCH_MODES, mode_counts, color=mode_colors, edgecolor=BG, linewidth=0.8, width=0.62
+        _MATCH_MODES,
+        mode_counts,
+        color=mode_colors,
+        edgecolor=BG,
+        linewidth=0.8,
+        width=0.62,
     )
     for bar, c in zip(bbars, mode_counts):
         axB.text(
@@ -126,7 +142,7 @@ def plot_shared_cookies(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="./cookies_data_processed")
+    parser.add_argument("--data", default="./cookies_data")
     parser.add_argument("--out", default="./plots/shared")
     parser.add_argument("--top_n", default=20, type=int)
     parser.add_argument("--min_sites", default=2, type=int)

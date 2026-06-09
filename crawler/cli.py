@@ -2,16 +2,13 @@ import argparse
 import asyncio
 import os
 import sys
-import pandas as pd
-import time
-from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from classifier.sensitive_classifier import SensitiveClassifier
-from client.api import Browser, ClientAPI
+import psutil
+
+from client.api import Browser
 from client.config import BrowserConfig, CrawlConfig
 from client.trackers import Detections, TrackerList
-from client.trackers.matcher import EasyPrivacyMatcher
+from .engine import CrawlEngine, kill_orphaned_browsers
 
 
 def main():
@@ -40,6 +37,16 @@ def main():
             f"Choices: {', '.join(b.value for b in Browser)}. "
             "Default: chromium. Example: --browsers chromium webkit firefox"
         ),
+    )
+    parser.add_argument(
+        "--country",
+        default="Netherlands",
+        help="From which country is the crawl running (default: Netherlands).",
+    )
+    parser.add_argument(
+        "--category",
+        default="popular",
+        help="Category of the site (default: popular).",
     )
     parser.add_argument(
         "--timeout-ms",
@@ -74,17 +81,17 @@ def main():
         help="Number of websites to process simultaneously (default: 1).",
     )
     parser.add_argument(
+        "--force-concurrency",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Force crawler to use specified concurrency despite cpu core check.",
+    )
+    parser.add_argument(
         "--overwrite",
         "-O",
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Overwrite existing output files (default: skip already-collected sites).",
-    )
-    parser.add_argument(
-        "--failed-sites",
-        metavar="FILE",
-        default=None,
-        help="Append failed domain names to this file (default: disabled).",
     )
     parser.add_argument(
         "--sleep-between-ms",
@@ -137,19 +144,30 @@ def main():
     args = parser.parse_args()
     browsers = [Browser(b) for b in args.browsers]
 
+    concurrency_explicit = any(a in sys.argv for a in ("--concurrency", "-c"))
+    if not concurrency_explicit and not args.force_concurrency:
+        cores = os.cpu_count() or 1
+        cpu_based = max(1, cores - 1)
+        mem = psutil.virtual_memory()
+        mb_per_slot = 400 if len(args.browsers) == 1 else 500
+        mem_based = max(1, int(mem.available / (mb_per_slot * 1024 * 1024)))
+        suggested = min(cpu_based, mem_based)
+        print(
+            f"[Crawler] Auto-tune: cpu_based={cpu_based}, mem_based={mem_based} "
+            f"({mem.available // 1024 // 1024} MB avail / {mb_per_slot} MB per slot) "
+            f"-> concurrency={suggested}"
+        )
+        args.concurrency = suggested
+
     concurrency = args.concurrency or 1
     cores = os.cpu_count()
-    if cores and concurrency > cores:
+    if cores and concurrency > cores and not args.force_concurrency:
         print(
-            f"Concurrency ({concurrency}) exceeds available cores ({cores}), setting to {cores - 1} to ensure stability"
+            f"[Crawler] Note: concurrency ({concurrency}) > cores ({cores}). "
+            f"This is fine for I/O-bound crawling. Pass --force-concurrency to silence."
         )
-        # if laptop is left overnight and it enters power saving mode,
-        # the switching between the crawling task and the OS might take so long
-        # that the laptop's hardware watchdog reboots it (happened to me)
-        concurrency = cores - 1
 
     tracker_list = None
-    matcher = None
     classifier = None
     if args.tracker_lists:
         tracker_list = TrackerList()
@@ -157,79 +175,75 @@ def main():
             trackers={Detections.OpenCookieDB, Detections.EasyPrivacy},
             cache_dir=args.tracker_cache_dir,
         )
-        matcher = EasyPrivacyMatcher(tracker_list._easyprivacy)
     if args.classifier:
+        from classifier.sensitive_classifier import SensitiveClassifier
+
         classifier = SensitiveClassifier()
 
     crawl_cfg = CrawlConfig(
         concurrency=concurrency,
         limit=args.limit,
         overwrite=args.overwrite,
-        failed_sites_path=args.failed_sites,
+        failed_sites_path="failed_sites.csv",
         sleep_between_ms=args.sleep_between_ms,
+        output_dir=f"{args.output_dir}/{args.country}",
+        country=args.country,
     )
 
-    batch_size = args.batch_size or 20
-    start_index = args.skip_first or 0
+    # progress.txt lives per-browser
+    progress_filename = "progress.txt"
+    first_browser_progress = os.path.join(
+        crawl_cfg.output_dir, browsers[0].value, progress_filename
+    )
+    if args.skip_first:
+        start_index = args.skip_first
+    elif os.path.exists(first_browser_progress):
+        with open(first_browser_progress) as pf:
+            start_index = int(pf.read().strip())
+        print(
+            f"[Crawler] Auto-resuming from site {start_index} (found {first_browser_progress})"
+        )
+    else:
+        start_index = 0
 
-    async def run_all():
-        processed_sites = start_index
-        for df in pd.read_csv(
-            args.input,
-            header=0,
-            names=["rank", "url"],
-            skiprows=start_index,
-            chunksize=batch_size,
-        ):
-            if args.limit is not None:
-                remaining = args.limit - (processed_sites - start_index)
-                if remaining <= 0:
-                    break
-                df = df.iloc[:remaining]
-            batch_start_t = time.time()
-            print(f"\n{'='*60}")
-            print(
-                f"  [Crawler] Processing sites {processed_sites + 1} to {processed_sites + len(df)}"
-            )
-            urls = df["url"].tolist()
-            start_time = datetime.now().strftime("%H:%M")
-            print(
-                f"            -> from `{urls[0]}` until `{urls[-1]}`"
-            )
-            print(f"            -> start time {start_time}")
-            print(f"{'='*60}\n")
-            for browser in browsers:
-                if len(browsers) > 1:
-                    print(f"    [Browser={browser.value}]")
+    browser_cfgs = [
+        BrowserConfig(
+            headless=args.headless,
+            timeout_ms=args.timeout_ms,
+            wait_time_ms=args.wait_time_ms,
+            tracker_list=tracker_list,
+            intercept_cookie_reads=args.cookie_reads,
+            browser_type=browser,
+            classifier=classifier,
+        )
+        for browser in browsers
+    ]
 
-                browser_cfg = BrowserConfig(
-                    headless=args.headless,
-                    timeout_ms=args.timeout_ms,
-                    wait_time_ms=args.wait_time_ms,
-                    tracker_list=tracker_list,
-                    matcher=matcher,
-                    intercept_cookie_reads=args.cookie_reads,
-                    browser_type=browser,
-                    classifier=classifier,
-                )
+    total_sites = args.limit or (
+        1000000 if "list_websites_1M.csv" in args.input else None
+    )
 
-                await ClientAPI.process_batch(
-                    websites=df["url"].tolist(),
-                    output_dir=args.output_dir,
-                    browser_cfg=browser_cfg,
-                    crawl_cfg=crawl_cfg,
-                )
-            print(f"\n{'='*60}")
-            print(
-                f"  [Crawler] finished batch {processed_sites // batch_size} in {time.time() - batch_start_t}s"
-            )
-            processed_sites += len(df)
+    kill_orphaned_browsers()
 
-    asyncio.run(run_all())
+    # stats.json lives at the top-level output dir (e.g. cookies_data/stats.json)
+    # so it can be `watch cat`-ed regardless of which country/browser is active.
+    stats_path = os.path.join(args.output_dir, "stats.json")
 
+    engine = CrawlEngine(
+        crawl_cfg=crawl_cfg,
+        browser_cfgs=browser_cfgs,
+        batch_size=args.batch_size,
+        start_index=start_index,
+        total_sites=total_sites,
+        progress_filename=progress_filename,
+        stats_path=stats_path,
+        input_path=args.input,
+        category=args.category,
+    )
 
-if __name__ == "__main__":
     try:
-        main()
+        asyncio.run(engine.run())
     except KeyboardInterrupt:
         print("Interrupted by user")
+    except asyncio.CancelledError:
+        pass

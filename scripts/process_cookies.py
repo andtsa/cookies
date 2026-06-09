@@ -148,7 +148,9 @@ def process_cookies(input_dir, output_dir):
                 if entropy_values
                 else 0.0
             )
-            site_metadata["max_entropy"] = round(max(entropy_values), 4) if entropy_values else 0.0
+            site_metadata["max_entropy"] = (
+                round(max(entropy_values), 4) if entropy_values else 0.0
+            )
             site_metadata["num_high_entropy"] = num_high_entropy
 
             output_data = {

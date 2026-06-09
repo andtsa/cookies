@@ -20,10 +20,8 @@ Requirements:
 """
 
 import argparse
-import json
 import os
 import sys
-import glob
 from collections import defaultdict
 from typing import Dict, List, Set, Tuple
 
@@ -34,97 +32,60 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
-from utils import apply_theme, save_figure, BG, DARK, ACCENT, ACCENT2, MID, LIGHT
+from utils import (
+    apply_theme,
+    dataset,
+    save_figure,
+    BG,
+    DARK,
+    ACCENT,
+    ACCENT2,
+    MID,
+    LIGHT,
+)
 
 
 def load_tracker_data(data_dir: str) -> pd.DataFrame:
     """
-    Load cookies with tracker information from both EasyPrivacy and OpenCookieDatabase.
+    Load tracker cookies with per-source flags from the centralised dataset.
 
-    Returns:
-        DataFrame with columns:
-        - domain: site domain
-        - name: cookie name
-        - is_tracker_ep: flagged by EasyPrivacy
-        - is_tracker_ocd: flagged by OpenCookieDatabase
-        - is_tracker: flagged by either source
-        - flagged_by: string indicating source(s)
+    Returns a DataFrame of tracker cookies with columns: domain, name,
+    is_tracker_ep, is_tracker_ocd, is_tracker, flagged_by, party_type, session,
+    lifetime_days. The EasyPrivacy / OpenCookieDatabase split comes straight from
+    the enriched ``is_tracker_ep`` / ``is_tracker_ocd`` columns.
     """
-    rows = []
-    paths = sorted(glob.glob(os.path.join(data_dir, "**", "*.json"), recursive=True))
-
-    if not paths:
-        raise FileNotFoundError(f"No JSON files found in: {data_dir}")
-
-    for path in paths:
-        with open(path) as f:
-            data = json.load(f)
-
-        domain = os.path.basename(path).replace(".json", "")
-
-        for cookie in data.get("cookies", []):
-            # Extract tracker information from both sources.
-            # New schema: is_tracker is None (not a tracker) or a dict.
-            # Old schema: is_tracker is False (not a tracker) or a dict.
-            is_tracker_data = cookie.get("is_tracker") or {}
-
-            if not is_tracker_data:
-                continue  # not a tracker — skip
-
-            tracker_lists = is_tracker_data.get("lists", [])
-
-            # Check if flagged by EasyPrivacy
-            is_tracker_ep = any(
-                "easylist" in src.lower() or "easyprivacy" in src.lower()
-                for src in tracker_lists
-            )
-
-            # Check if flagged by OpenCookieDatabase
-            is_tracker_ocd = any(
-                "opencookie" in src.lower() or "ocd" in src.lower()
-                for src in tracker_lists
-            )
-
-            if not (is_tracker_ep or is_tracker_ocd):
-                continue
-
-            flagged_by = []
-            if is_tracker_ep:
-                flagged_by.append("EasyPrivacy")
-            if is_tracker_ocd:
-                flagged_by.append("OpenCookieDatabase")
-
-            # party_type: prefer the field added by process_cookies.py;
-            # fall back to set_by.third_party from the raw schema.
-            set_by = cookie.get("set_by") or {}
-            party_type = cookie.get(
-                "party_type",
-                "third_party" if set_by.get("third_party") else "first_party",
-            )
-
-            rows.append(
-                {
-                    "domain": domain,
-                    "name": cookie.get("name"),
-                    "is_tracker_ep": is_tracker_ep,
-                    "is_tracker_ocd": is_tracker_ocd,
-                    "is_tracker": True,
-                    "flagged_by": ", ".join(flagged_by),
-                    "party_type": party_type,
-                    "session": cookie.get("session", True),
-                    "lifetime_days": cookie.get("lifetime_days", 0),
-                }
-            )
-
-    if not rows:
+    df = dataset(data_dir).cookies
+    trackers = df[df["is_tracker"]].copy()
+    if trackers.empty:
         raise ValueError(
             "No cookies with tracker information found. "
             "Re-collect with both tracker lists enabled."
         )
 
-    df = pd.DataFrame(rows)
-    print(f"Loaded {len(df)} tracked cookies from {len(df['domain'].unique())} domains")
-    return df
+    def _flagged_by(row) -> str:
+        sources = []
+        if row["is_tracker_ep"]:
+            sources.append("EasyPrivacy")
+        if row["is_tracker_ocd"]:
+            sources.append("OpenCookieDatabase")
+        return ", ".join(sources)
+
+    trackers["flagged_by"] = trackers.apply(_flagged_by, axis=1)
+    out = trackers[
+        [
+            "domain",
+            "name",
+            "is_tracker_ep",
+            "is_tracker_ocd",
+            "is_tracker",
+            "flagged_by",
+            "party_type",
+            "session",
+            "lifetime_days",
+        ]
+    ].reset_index(drop=True)
+    print(f"Loaded {len(out)} tracked cookies from {out['domain'].nunique()} domains")
+    return out
 
 
 def generate_statistics(df: pd.DataFrame) -> Dict:
