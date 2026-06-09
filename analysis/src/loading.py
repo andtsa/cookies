@@ -23,10 +23,19 @@ def path_context(path: Path, data_dir: str | os.PathLike) -> tuple[str, str, str
     Expects the canonical layout ``{country}/{browser}/{hexprefix}/{slug}.json``.
     Returns ``"unknown"`` for country/browser when the path is shorter.
     """
-    parts = Path(path).relative_to(Path(data_dir)).parts
-    slug = Path(path).stem
-    country = parts[0] if len(parts) >= 4 else "unknown"
-    browser = parts[1] if len(parts) >= 4 else "unknown"
+    # Normalise both to forward-slash strings so the prefix strip is a single
+    # slice rather than repeated Path object construction.
+    s = str(path)
+    prefix = str(data_dir).rstrip("/\\") + os.sep
+    rel = s[len(prefix) :] if s.startswith(prefix) else s
+    parts = rel.replace("\\", "/").split("/")
+    # parts: [country, browser, hexprefix, slug.json]
+    if len(parts) >= 4:
+        country, browser = parts[1], parts[2]
+        slug = parts[-1][:-5]  # strip ".json"
+    else:
+        country = browser = "unknown"
+        slug = parts[-1][:-5] if parts[-1].endswith(".json") else parts[-1]
     return country, browser, slug
 
 

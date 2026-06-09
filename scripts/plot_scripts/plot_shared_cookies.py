@@ -49,6 +49,7 @@ def plot_shared_cookies(
     results_by_mode = {
         mode: ds.shared(match_mode=mode, min_sites=min_sites) for mode in _MATCH_MODES
     }
+    print(results_by_mode)
     panel_a = results_by_mode["name-cluster"][:top_n]
 
     fig, (axA, axB) = plt.subplots(
