@@ -64,7 +64,7 @@ def plot_lifetime_survival(data_dir: str, out_dir: str):
     # ── Persistent trackers only ──
     classified = ds.classified_cookies
     persistent_trackers = classified[
-        (classified["tracker_like"] == True)
+        (classified["is_tracker"])
         & (~classified["session"])
         & (classified["lifetime_days"].notna())
         & (classified["lifetime_days"] > 0)

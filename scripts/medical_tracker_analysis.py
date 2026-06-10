@@ -71,14 +71,14 @@ def main() -> None:
         n_workers=max(1, (os.cpu_count() or 8) - 1),
     )
 
-    cookies = ds.cookies.copy()
+    cookies = ds.classified_cookies.copy()
     cookies["domain"] = cookies["domain"].astype(str).str.lower()
     print(f"Loaded {len(cookies):,} cookie rows")
 
     # --------------------------------------------------
-    # Tracker cookies only
+    # Tracker cookies only (is_tracker = tracker_tier >= "probable")
     # --------------------------------------------------
-    trackers = cookies[cookies["is_tracker"].astype(bool)].copy()
+    trackers = cookies[cookies["is_tracker"]].copy()
     print(f"Tracker rows: {len(trackers):,}")
 
     provider_col = "tracker_provider"

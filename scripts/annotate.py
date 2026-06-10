@@ -49,7 +49,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--workers",
         type=int,
-        default=(os.cpu_count() or 8) // 2,
+        default=(os.cpu_count() or 8) - 1,
         help="parallel worker processes for EasyPrivacy prefetch",
     )
     p.add_argument(

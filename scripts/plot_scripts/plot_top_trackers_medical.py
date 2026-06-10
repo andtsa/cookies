@@ -79,7 +79,7 @@ def main():
     print(f"Loaded {len(health_domains):,} health domains")
 
     ds = dataset(args.data)
-    cookies = ds.cookies
+    cookies = ds.classified_cookies
 
     # Filter to country/browser/health sites/tracker cookies in one pass.
     mask = (

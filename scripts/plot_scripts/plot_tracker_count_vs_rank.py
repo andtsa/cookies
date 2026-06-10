@@ -95,7 +95,7 @@ def load_site_tracker_counts(data_dir: str, rank_csv: str | None) -> pd.DataFram
     If that column is missing or sparse, falls back to joining the external CSV.
     """
     ds = dataset(data_dir)
-    cookies = ds.cookies
+    cookies = ds.classified_cookies
 
     if cookies.empty or "is_tracker" not in cookies.columns:
         return pd.DataFrame()

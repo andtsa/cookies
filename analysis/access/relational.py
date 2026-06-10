@@ -40,7 +40,7 @@ class RelationalAccess:
             "registered_domain",
             "cookie_type",
             "party_type",
-            "is_tracker",
+            "is_tracker_listed",
             "country",
             "browser",
         ]

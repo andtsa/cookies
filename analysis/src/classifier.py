@@ -232,18 +232,20 @@ def classify_cookies(
 ) -> pd.DataFrame:
     """Classify every row of ``cookies_df`` into a tiered tracker label.
 
-    Returns a frame aligned to ``cookies_df.index`` with three columns:
+    Returns a frame aligned to ``cookies_df.index`` with two columns:
 
-    - ``tracker_tier``      ordered category in ``none < possible < probable < confirmed``
-    - ``tracker_like``      bool, ``tracker_tier != "none"``
-    - ``tracker_signals``   list[str] of every rule that fired
+    - ``tracker_tier``    ordered category ``none < possible < probable < confirmed``
+    - ``tracker_signals`` list[str] of every rule that fired (auditable)
+
+    The ``is_tracker`` boolean is **not** produced here — it is derived in
+    :attr:`~analysis.CookieDataset.classified_cookies` as
+    ``tracker_tier >= "probable"`` so the definition lives in exactly one place.
     """
     idx = cookies_df.index
     if cookies_df.empty:
         return pd.DataFrame(
             {
                 "tracker_tier": pd.Categorical([], categories=TIERS, ordered=True),
-                "tracker_like": pd.Series([], dtype="bool"),
                 "tracker_signals": pd.Series([], dtype="object"),
             },
             index=idx,
@@ -266,7 +268,6 @@ def classify_cookies(
     return pd.DataFrame(
         {
             "tracker_tier": pd.Categorical(tiers, categories=TIERS, ordered=True),
-            "tracker_like": [t != NONE for t in tiers],
             "tracker_signals": signal_lists,
         },
         index=idx,

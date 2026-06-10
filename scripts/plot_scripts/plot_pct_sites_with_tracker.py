@@ -52,7 +52,7 @@ def load_site_tracker_summary(data_dir: str) -> pd.DataFrame:
         total_cookies, n_tracker, has_tracker,
         has_easyprivacy, has_ocdb, has_both, has_only_ep, has_only_ocdb, has_other
     """
-    cookies = dataset(data_dir).cookies
+    cookies = dataset(data_dir).classified_cookies
 
     if cookies.empty:
         return pd.DataFrame()

@@ -107,25 +107,27 @@ def load_cookie_data(data_dir: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     Returns:
         sites_df   – one row per (country, browser, site)
         cookies_df – one row per cookie, fully enriched (party_type, is_tracker,
-                     entropy, set_by_*, name_family, lifetime_bucket, …)
+                     tracker_tier, tracker_signals, entropy, set_by_*, …)
 
-    Thin wrapper over ``CookieDataset``; column names (incl. legacy aliases like
-    ``httpOnly``/``set_by_url``) are preserved for backward compatibility.
+    ``is_tracker`` is the unified classification-based boolean
+    (``tracker_tier >= "probable"``), not a raw list-match. All plot scripts
+    that filter or aggregate on ``is_tracker`` therefore use the same definition,
+    whether they go through this loader or access ``ds.classified_cookies``
+    directly.
     """
     ds = dataset(data_dir)
-    cookies, sites = _with_legacy_aliases(ds.cookies, ds.sites)
+    cookies, sites = _with_legacy_aliases(ds.classified_cookies, ds.sites)
     return sites, cookies
 
 
 def load_tracker_cookies(data_dir: str) -> pd.DataFrame:
-    """Cookies with a boolean ``is_tracker`` column.
+    """Cookies where ``is_tracker`` is True (``tracker_tier >= "probable"``).
 
-    Tracker status is computed by the dataset (the crawler's ``tracker`` field is
-    preferred, otherwise derived from the tracker lists), so this no longer
-    requires data pre-annotated by process_cookies.py.
+    Uses :attr:`~analysis.CookieDataset.classified_cookies` so the boolean
+    reflects the full behavioural classification, not just list membership.
     """
     ds = dataset(data_dir)
-    cookies, _ = _with_legacy_aliases(ds.cookies, ds.sites)
+    cookies, _ = _with_legacy_aliases(ds.classified_cookies, ds.sites)
     if cookies.empty:
         raise ValueError(f"No cookies found in {data_dir!r}.")
     return cookies
@@ -137,7 +139,6 @@ def save_figure(out_dir: str, *filenames: str, facecolor: str = BG) -> None:
     for filename in filenames:
         out_path = os.path.join(out_dir, filename)
         plt.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=facecolor)
-        # Plain ASCII arrow: a Windows cp1252 console cannot encode "→".
         print(f"Saved -> {out_path}")
     plt.close()
 

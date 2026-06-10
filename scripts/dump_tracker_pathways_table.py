@@ -98,10 +98,9 @@ def main():
 
     from collections import Counter
 
-    # Pull from the cached cookies frame — filtered to country/browser up front.
-    # This loads from parquet in milliseconds rather than re-parsing every site
-    # JSON from scratch (which was what iter_raw_sites() was doing, ~1 min).
-    df = ds.cookies
+    # classified_cookies carries the canonical is_tracker (tracker_tier >= "probable"),
+    # which is what we want for the tracker-share column in this table.
+    df = ds.classified_cookies
     df = df[(df["country"] == args.country) & (df["browser"] == args.browser)]
 
     # Collect (party, mechanism, channel) -> [total, tracker_count]

@@ -38,7 +38,7 @@ def plot_first_vs_third_party(data_dir: str, out_dir: str):
 
     # ── Trackers only ──
     classified = ds.classified_cookies
-    trackers = classified[classified["tracker_like"] == True]
+    trackers = classified[classified["is_tracker"]]
     total_trackers = len(trackers)
     third_trackers = trackers["set_by_third_party"].sum()
     first_trackers = total_trackers - third_trackers
