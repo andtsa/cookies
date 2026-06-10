@@ -17,10 +17,11 @@ promise is made by the same party being evaluated.
 Tiers (ordinal — each level implies everything below it):
 
   confirmed  Direct behavioural proof (the value was observed being passed to
-             a different domain, e.g. cookie syncing) or multiple independent
-             strong signals corroborating each other (list match + third-party
-             deployment + identifying capability; or the same identifier
-             reused across several distinct third-party contexts).
+             a different domain, e.g. cookie syncing; or a third-party cookie
+             whose name is JS-read across many distinct domains) or multiple
+             independent strong signals corroborating each other (list match +
+             third-party deployment + identifying capability; or the same
+             identifier reused across several distinct third-party contexts).
 
   probable   One strong, fairly unambiguous signal: a known-tracker-list
              match, the identifier showing up on multiple distinct sites, the
@@ -48,7 +49,7 @@ from typing import Any
 
 import pandas as pd
 
-from .helpers import HIGH_ENTROPY_BITS
+from .helpers import CORROBORATED_ENTROPY_BITS, HIGH_ENTROPY_BITS
 from .progress import track
 
 # tiers
@@ -74,6 +75,8 @@ SHARED_SITES_CONFIRMED = 4
 # Distinct domains a cookie *name* must be JS-read on to count as cross-domain
 # read behaviour (from ``cross_domain_reads``).
 CROSS_DOMAIN_READ_DOMAINS = 2
+# Combined signal: third-party + JS-read across this many domains -> confirmed.
+CROSS_DOMAIN_READ_CONFIRMED = 4
 
 
 @dataclass(frozen=True)
@@ -194,7 +197,7 @@ def _classify_row(
     if listed:
         provider = row.get("tracker_provider") or "list_match"
         fire(PROBABLE, f"list:{provider}")
-    if shared_sites >= SHARED_SITES_PROBABLE and shared_has_3p:
+    if shared_sites >= SHARED_SITES_PROBABLE and shared_has_3p and capable:
         fire(PROBABLE, f"behaviour:identifier_shared_across_{shared_sites}_sites")
     if read_domains >= CROSS_DOMAIN_READ_DOMAINS:
         fire(PROBABLE, f"behaviour:js_read_across_{read_domains}_domains")
@@ -204,9 +207,16 @@ def _classify_row(
     # proof
     if was_synced:
         fire(CONFIRMED, "behaviour:cookie_syncing_confirmed")
-    if shared_sites >= SHARED_SITES_CONFIRMED and shared_has_3p:
+    if third_party_set and read_domains >= CROSS_DOMAIN_READ_CONFIRMED:
+        fire(CONFIRMED, f"behaviour:third_party+js_read_across_{read_domains}_domains")
+    if shared_sites >= SHARED_SITES_CONFIRMED and shared_has_3p and capable:
         fire(CONFIRMED, f"behaviour:identifier_shared_across_{shared_sites}_sites")
-    if listed and third_party_set and capable:
+    corroborated_capable = (
+        (row.get("total_bits") or 0.0) >= CORROBORATED_ENTROPY_BITS
+        and is_persistent
+        and lifetime_days >= PERSISTENT_MIN_DAYS
+    )
+    if listed and third_party_set and corroborated_capable:
         fire(CONFIRMED, "corroborated:list+third_party+capability")
 
     return tier, signals
