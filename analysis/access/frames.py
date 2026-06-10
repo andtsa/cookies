@@ -96,8 +96,9 @@ class FrameAccess:
         Adds three columns (see :mod:`analysis.src.classifier`):
 
         - ``tracker_tier``       ordered ``none < possible < probable < confirmed``
-        - ``tracker_like``       bool — ``tracker_tier != "none"``
         - ``tracker_signals``    list[str] of every rule that fired (auditable)
+        - ``is_tracker``         bool — ``tracker_tier >= "probable"`` (unified canonical
+                                 definition, overrides the list-only bool in :attr:`cookies`)
 
         **This is the expensive view** — deliberately kept separate from
         :attr:`cookies` rather than merged in. Computing the label requires
@@ -126,8 +127,8 @@ class FrameAccess:
                 tracker_tier=pd.Categorical(
                     [], categories=classifier.TIERS, ordered=True
                 ),
-                tracker_like=pd.Series(dtype="bool"),
                 tracker_signals=pd.Series(dtype="object"),
+                is_tracker=pd.Series(dtype="bool"),
             )
 
         key = self._classified_key()
@@ -137,7 +138,9 @@ class FrameAccess:
                 labels, artifacts = cached
                 self._hydrate_relational(artifacts)
                 labels.index = df.index
-                return pd.concat([df, labels], axis=1)
+                result = pd.concat([df, labels], axis=1)
+                result["is_tracker"] = result["tracker_tier"] >= "probable"
+                return result
 
         labels = classifier.classify_cookies(
             df,
@@ -159,7 +162,15 @@ class FrameAccess:
                 },
                 meta={"data_dir": self.data_dir, "n_cookies": int(len(df))},
             )
-        return pd.concat([df, labels], axis=1)
+        result = pd.concat([df, labels], axis=1)
+        # Unified tracker boolean: True iff the classifier found at least one
+        # strong, unambiguous signal (tier >= "probable").
+        # This overrides the list-only bool that cookies carries under the same
+        # name, so every frame consumer reads the same definition from the same
+        # column — whether they got here via ds.classified_cookies directly, or
+        # via group(trackers_only=True), or via load_cookie_data().
+        result["is_tracker"] = result["tracker_tier"] >= "probable"
+        return result
 
     def _classified_key(self) -> str | None:
         """Cache key for the annotation: the cookies fingerprint extended with
@@ -278,8 +289,8 @@ class FrameAccess:
                         "total_bits": metrics["total_bits"],
                         "value_length": metrics["value_length"],
                         "md5_value": md5_value(value),
-                        # derived: tracker
-                        "is_tracker": is_tracker,
+                        # derived: tracker (list-only; canonical is_tracker lives in classified_cookies)
+                        "is_tracker_listed": is_tracker,
                         "is_tracker_ep": "EasyPrivacy" in lists,
                         "is_tracker_ocd": "OpenCookieDB" in lists,
                         "tracker_lists": lists,
@@ -302,7 +313,7 @@ class FrameAccess:
         # Legacy aliases so unmigrated plot scripts read the frame unchanged.
         df["httpOnly"] = df["http_only"]
         df["sameSite"] = df["same_site"]
-        df["is_tracker_bool"] = df["is_tracker"]
+        df["is_tracker_bool"] = df["is_tracker_listed"]
         df["bucket"] = df["lifetime_bucket"]
         return df
 

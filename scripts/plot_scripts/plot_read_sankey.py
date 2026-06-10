@@ -62,17 +62,31 @@ def _ribbon(ax, x0, x1, y0_l, y1_l, y0_r, y1_r, color):
     """Filled Bezier band between left edge [y0_l,y1_l] and right edge [y0_r,y1_r]."""
     cx = (x0 + x1) / 2.0
     verts = [
-        (x0, y1_l), (cx, y1_l), (cx, y1_r), (x1, y1_r),
-        (x1, y0_r), (cx, y0_r), (cx, y0_l), (x0, y0_l),
+        (x0, y1_l),
+        (cx, y1_l),
+        (cx, y1_r),
+        (x1, y1_r),
+        (x1, y0_r),
+        (cx, y0_r),
+        (cx, y0_l),
+        (x0, y0_l),
         (x0, y1_l),
     ]
     codes = [
-        Path.MOVETO, Path.CURVE4, Path.CURVE4, Path.CURVE4,
-        Path.LINETO, Path.CURVE4, Path.CURVE4, Path.CURVE4,
+        Path.MOVETO,
+        Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
+        Path.LINETO,
+        Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
         Path.CLOSEPOLY,
     ]
     ax.add_patch(
-        PathPatch(Path(verts, codes), facecolor=color, edgecolor="none", alpha=RIBBON_ALPHA)
+        PathPatch(
+            Path(verts, codes), facecolor=color, edgecolor="none", alpha=RIBBON_ALPHA
+        )
     )
 
 
@@ -110,8 +124,12 @@ def plot_read_sankey(data_dir: str, out_dir: str, top: int) -> None:
     ]
 
     # Flows between the three stages.
-    f_cr = Counter((e["cookie"], e["reader_domain"]) for e in folded)  # cookie -> reader
-    f_rs = Counter((e["reader_domain"], e["script"]) for e in folded)  # reader -> script
+    f_cr = Counter(
+        (e["cookie"], e["reader_domain"]) for e in folded
+    )  # cookie -> reader
+    f_rs = Counter(
+        (e["reader_domain"], e["script"]) for e in folded
+    )  # reader -> script
 
     # Node orders, each by volume.
     col0_nodes = Counter(e["cookie"] for e in folded).most_common()
@@ -134,24 +152,56 @@ def plot_read_sankey(data_dir: str, out_dir: str, top: int) -> None:
     domain_colors = {d: COLORS[i % len(COLORS)] for i, d in enumerate(col1_order)}
 
     fig, ax = plt.subplots(figsize=(16, max(8, 0.5 * max_nodes + 4)))
-    box = dict(facecolor=BG, edgecolor="none", alpha=0.78, pad=1.2, boxstyle="round,pad=0.2")
+    box = dict(
+        facecolor=BG, edgecolor="none", alpha=0.78, pad=1.2, boxstyle="round,pad=0.2"
+    )
 
     def _draw_nodes(pos, x, align):
         for label, (yb, yt, _top) in pos.items():
             color = domain_colors.get(label, DARK) if align == "center" else DARK
             ax.add_patch(
-                plt.Rectangle((x, yb), NODE_W, yt - yb, facecolor=color, edgecolor=BG, linewidth=0.5)
+                plt.Rectangle(
+                    (x, yb),
+                    NODE_W,
+                    yt - yb,
+                    facecolor=color,
+                    edgecolor=BG,
+                    linewidth=0.5,
+                )
             )
             ymid = (yb + yt) / 2.0
             short = label if len(label) <= 30 else label[:28] + ".."
             if align == "left":
-                ax.text(x - 0.008, ymid, short, ha="right", va="center", fontsize=7.5, color=DARK)
+                ax.text(
+                    x - 0.008,
+                    ymid,
+                    short,
+                    ha="right",
+                    va="center",
+                    fontsize=7.5,
+                    color=DARK,
+                )
             elif align == "right":
-                ax.text(x + NODE_W + 0.008, ymid, short, ha="left", va="center", fontsize=7.5, color=DARK)
+                ax.text(
+                    x + NODE_W + 0.008,
+                    ymid,
+                    short,
+                    ha="left",
+                    va="center",
+                    fontsize=7.5,
+                    color=DARK,
+                )
             else:
                 ax.text(
-                    x + NODE_W / 2, ymid, short,
-                    ha="center", va="center", fontsize=7.5, color=DARK, bbox=box, zorder=5,
+                    x + NODE_W / 2,
+                    ymid,
+                    short,
+                    ha="center",
+                    va="center",
+                    fontsize=7.5,
+                    color=DARK,
+                    bbox=box,
+                    zorder=5,
                 )
 
     _draw_nodes(p0, x0, "left")
@@ -160,9 +210,9 @@ def plot_read_sankey(data_dir: str, out_dir: str, top: int) -> None:
 
     # Out/in cursors track how far down each node's edge we've consumed.
     out0 = {n: p0[n][1] for n in col0_order}  # cookie right edge
-    in1 = {n: p1[n][1] for n in col1_order}   # reader left edge
+    in1 = {n: p1[n][1] for n in col1_order}  # reader left edge
     out1 = {n: p1[n][1] for n in col1_order}  # reader right edge
-    in2 = {n: p2[n][1] for n in col2_order}   # script left edge
+    in2 = {n: p2[n][1] for n in col2_order}  # script left edge
 
     # Stage 1: cookie -> reader domain, nested cookie(outer) x reader(inner).
     for c in col0_order:
@@ -193,7 +243,10 @@ def plot_read_sankey(data_dir: str, out_dir: str, top: int) -> None:
     from matplotlib.patches import Patch
 
     ax.legend(
-        handles=[Patch(facecolor=domain_colors[d], label=d, alpha=RIBBON_ALPHA) for d in col1_order],
+        handles=[
+            Patch(facecolor=domain_colors[d], label=d, alpha=RIBBON_ALPHA)
+            for d in col1_order
+        ],
         title="reader domain",
         loc="lower center",
         bbox_to_anchor=(0.5, -0.10),
@@ -206,17 +259,48 @@ def plot_read_sankey(data_dir: str, out_dir: str, top: int) -> None:
     ax.set_ylim(-0.04, 1.08)
     ax.axis("off")
 
-    ax.text(x0 + NODE_W / 2, 1.04, "cookie name", ha="center", va="bottom", fontsize=11, fontweight="bold", color=DARK)
-    ax.text(x1 + NODE_W / 2, 1.04, "reader domain", ha="center", va="bottom", fontsize=11, fontweight="bold", color=DARK)
-    ax.text(x2 + NODE_W / 2, 1.04, "reader script", ha="center", va="bottom", fontsize=11, fontweight="bold", color=DARK)
+    ax.text(
+        x0 + NODE_W / 2,
+        1.04,
+        "cookie name",
+        ha="center",
+        va="bottom",
+        fontsize=11,
+        fontweight="bold",
+        color=DARK,
+    )
+    ax.text(
+        x1 + NODE_W / 2,
+        1.04,
+        "reader domain",
+        ha="center",
+        va="bottom",
+        fontsize=11,
+        fontweight="bold",
+        color=DARK,
+    )
+    ax.text(
+        x2 + NODE_W / 2,
+        1.04,
+        "reader script",
+        ha="center",
+        va="bottom",
+        fontsize=11,
+        fontweight="bold",
+        color=DARK,
+    )
 
     ax.set_title(
         f"Cross-Domain Cookie Read Flow   (top {top} names/scripts,  {total:,} reads)",
-        fontsize=15, fontweight="bold", pad=18,
+        fontsize=15,
+        fontweight="bold",
+        pad=18,
     )
     plt.tight_layout()
     save_figure(out_dir, "plot_read_sankey.png", "plot_read_sankey.pdf")
-    print(f"Plotted {total:,} cross-domain read observations across {len(col1_nodes)} reader domains.")
+    print(
+        f"Plotted {total:,} cross-domain read observations across {len(col1_nodes)} reader domains."
+    )
 
 
 if __name__ == "__main__":

@@ -52,7 +52,7 @@ def _load_sync_edges(data_dir: str):
             if site_domain and to_domain and site_domain != to_domain:
                 edge_counts[(site_domain, to_domain)] += 1
 
-    trackers = ds.cookies[ds.cookies["is_tracker"]]
+    trackers = ds.classified_cookies[ds.classified_cookies["is_tracker"]]
     tracker_domains = {
         d.lstrip(".") for d in trackers["cookie_domain"].dropna().unique() if d
     }

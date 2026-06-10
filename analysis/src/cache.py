@@ -61,6 +61,12 @@ def load(cache_dir: str, key: str) -> tuple[pd.DataFrame, pd.DataFrame] | None:
     if not p["meta"].exists():
         return None
     try:
+        meta = json.loads(p["meta"].read_text())
+        if meta.get("schema_version") != SCHEMA_VERSION:
+            return None
+    except Exception:
+        return None
+    try:
         if p["cookies"].exists() and p["sites"].exists():
             return pd.read_parquet(p["cookies"]), pd.read_parquet(p["sites"])
         if p["cookies_pkl"].exists() and p["sites_pkl"].exists():

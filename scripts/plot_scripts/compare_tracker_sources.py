@@ -52,7 +52,7 @@ def load_site_tracker_summary(data_dir: str) -> pd.DataFrame:
         total_cookies, n_tracker, has_tracker,
         has_easyprivacy, has_ocdb, has_both, has_only_ep, has_only_ocdb, has_other
     """
-    cookies = dataset(data_dir).cookies
+    cookies = dataset(data_dir).classified_cookies
 
     if cookies.empty:
         return pd.DataFrame()
@@ -104,10 +104,7 @@ def plot_pct_sites_with_tracker(data_dir: str, out_dir: str) -> None:
     df = load_site_tracker_summary(data_dir)
 
     if df.empty:
-        print(
-            "No is_tracker data found. "
-            "Re-collect with --tracker-lists to annotate cookies."
-        )
+        print("No is_tracker data found. ")
         return
 
     n_total = len(df)

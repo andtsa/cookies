@@ -262,7 +262,7 @@ def main():
     print(f"Loaded {len(health_domains):,} health domains")
 
     ds = dataset(args.data)
-    cookies = ds.cookies
+    cookies = ds.classified_cookies
 
     # Split into health / non-health in one pass over the cached frame.
     base = cookies[
@@ -330,6 +330,7 @@ def main():
     )
 
     save_figure(args.out, "health_vs_nonhealth_trackers.png")
+    save_figure(args.out, "health_vs_nonhealth_trackers.pdf")
 
 
 if __name__ == "__main__":
