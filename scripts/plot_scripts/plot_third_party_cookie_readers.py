@@ -53,8 +53,14 @@ def plot_top_readers(data_dir: str, out_dir: str, top_n: int = 20) -> None:
     fig, ax = plt.subplots(figsize=(10, 7))
     if not pairs:
         ax.text(
-            0.5, 0.5, "No third-party cookie reads found",
-            ha="center", va="center", transform=ax.transAxes, fontsize=14, color=DARK,
+            0.5,
+            0.5,
+            "No third-party cookie reads found",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=14,
+            color=DARK,
         )
         ax.axis("off")
         save_figure(out_dir, "top_reader_domains.png", "top_reader_domains.pdf")

@@ -13,7 +13,6 @@ sys.path.insert(0, ROOT)
 
 from analysis.src import syncing as fcs  # noqa: E402
 
-
 UID = "a7x9f228j991pqzm2c4b8"
 
 

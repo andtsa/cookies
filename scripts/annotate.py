@@ -100,9 +100,9 @@ def main(argv: list[str] | None = None) -> int:
     elapsed = time.time() - t0
 
     tiers = (
-        classified["tracker_tier"].value_counts().reindex(
-            ["confirmed", "probable", "possible", "none"], fill_value=0
-        )
+        classified["tracker_tier"]
+        .value_counts()
+        .reindex(["confirmed", "probable", "possible", "none"], fill_value=0)
     )
     print(f"[annotate] done in {elapsed:,.1f}s. Tier distribution:")
     for tier, count in tiers.items():

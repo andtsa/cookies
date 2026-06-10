@@ -33,7 +33,9 @@ def track(
     return tqdm(iterable, desc=desc, total=total, unit=unit, leave=leave)
 
 
-def bar(desc: str = "", total: Optional[int] = None, unit: str = "it", leave: bool = True):
+def bar(
+    desc: str = "", total: Optional[int] = None, unit: str = "it", leave: bool = True
+):
     """Return a manually-updated tqdm bar, or a no-op stand-in if tqdm is absent.
 
     The stand-in supports ``update``, ``set_postfix``/``set_postfix_str`` and the

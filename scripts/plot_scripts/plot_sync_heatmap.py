@@ -25,7 +25,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 import sync_subtypes as ss
 from utils import apply_theme, save_figure, BG, ACCENT, DARK
 
-
 # Sequential, on-theme colormap: pale background -> primary accent -> dark.
 _CMAP = LinearSegmentedColormap.from_list("sync_seq", [BG, ACCENT, DARK])
 
@@ -51,9 +50,7 @@ def plot_heatmap(data_dir: str, out_dir: str, top: int, cols: str) -> None:
             grid[e["to_domain"]][ss.dim_value(e, cols)] += 1
 
     categories = [c for c in order if any(grid[d].get(c) for d in domains)]
-    categories += sorted(
-        {c for d in domains for c in grid[d] if c not in order}
-    )
+    categories += sorted({c for d in domains for c in grid[d] if c not in order})
 
     matrix = [[grid[d].get(c, 0) for c in categories] for d in domains]
 
@@ -66,7 +63,12 @@ def plot_heatmap(data_dir: str, out_dir: str, top: int, cols: str) -> None:
     ax.set_xticklabels(categories, rotation=30, ha="right", fontsize=10)
     ax.set_yticks(range(len(domains)))
     ax.set_yticklabels(domains, fontsize=9)
-    ax.set_title(f"Cookie-Sync: receiving domain x {cols}", fontsize=16, fontweight="bold", pad=12)
+    ax.set_title(
+        f"Cookie-Sync: receiving domain x {cols}",
+        fontsize=16,
+        fontweight="bold",
+        pad=12,
+    )
 
     # Annotate each cell; pick a legible text color against the cell shade.
     vmax = max((v for r in matrix for v in r), default=1) or 1
@@ -74,14 +76,21 @@ def plot_heatmap(data_dir: str, out_dir: str, top: int, cols: str) -> None:
         for j, v in enumerate(r):
             if v:
                 ax.text(
-                    j, i, str(v), ha="center", va="center", fontsize=8,
+                    j,
+                    i,
+                    str(v),
+                    ha="center",
+                    va="center",
+                    fontsize=8,
                     color="white" if v > 0.55 * vmax else DARK,
                 )
 
     cbar = fig.colorbar(im, ax=ax, fraction=0.035, pad=0.02)
     cbar.set_label("sync rows (per-param)", fontsize=10)
     plt.tight_layout()
-    save_figure(out_dir, f"plot_sync_heatmap_{cols}.png", f"plot_sync_heatmap_{cols}.pdf")
+    save_figure(
+        out_dir, f"plot_sync_heatmap_{cols}.png", f"plot_sync_heatmap_{cols}.pdf"
+    )
 
     ss.print_subtype_report(events)
 

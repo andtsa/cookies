@@ -114,12 +114,20 @@ def plot_organization_coverage(data_dir: str, out_dir: str, top_n: int = 15) -> 
     fig, ax = plt.subplots(figsize=(10, 7))
     if not pairs:
         ax.text(
-            0.5, 0.5, "No third-party cookie reads from known organizations",
-            ha="center", va="center", transform=ax.transAxes, fontsize=14, color=DARK,
+            0.5,
+            0.5,
+            "No third-party cookie reads from known organizations",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=14,
+            color=DARK,
         )
         ax.axis("off")
         save_figure(
-            out_dir, "organization_cookie_readers.png", "organization_cookie_readers.pdf"
+            out_dir,
+            "organization_cookie_readers.png",
+            "organization_cookie_readers.pdf",
         )
         return
 

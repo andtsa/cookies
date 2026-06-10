@@ -51,9 +51,9 @@ def _color_map(categories: list[str]) -> dict[str, str]:
 
 
 TIER_COLORS = {
-    "confirmed": utils.ACCENT,        # strongest -> primary highlight
+    "confirmed": utils.ACCENT,  # strongest -> primary highlight
     "endpoint-named": utils.ACCENT2,  # promoted middle tier
-    "candidate": utils.MID,           # weakest
+    "candidate": utils.MID,  # weakest
 }
 CARRIER_COLORS = _color_map(CARRIERS)
 ENCODING_COLORS = _color_map(ENCODINGS)
@@ -96,7 +96,9 @@ def dim_value(event: dict, dimension: str) -> str | None:
     return event.get(dimension)
 
 
-def topn_with_other(counter: Counter, n: int, other_label: str = "(other)") -> list[str]:
+def topn_with_other(
+    counter: Counter, n: int, other_label: str = "(other)"
+) -> list[str]:
     """Top-``n`` keys by count, with the remainder folded into ``other_label``."""
     top = [k for k, _ in counter.most_common(n)]
     if len(counter) > n:
@@ -128,7 +130,9 @@ def print_subtype_report(events: list[dict]) -> None:
         counts = Counter(v for e in events if (v := dim_value(e, dim)) is not None)
         # encoding only applies to confirmed rows; its denominator is those rows.
         denom = sum(counts.values())
-        print(f"\n  By {dim}:" + (" (confirmed rows only)" if dim == "encoding" else ""))
+        print(
+            f"\n  By {dim}:" + (" (confirmed rows only)" if dim == "encoding" else "")
+        )
         seen = set()
         for label in order + sorted(k for k in counts if k not in order):
             if label in seen:

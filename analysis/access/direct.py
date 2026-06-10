@@ -187,9 +187,7 @@ class RawAccess:
         if not (self.cache_dir and new_items):
             return
         try:
-            ep_cache.append(
-                self.cache_dir, self._ep_match_fingerprint, new_items
-            )
+            ep_cache.append(self.cache_dir, self._ep_match_fingerprint, new_items)
         except Exception:
             pass
 

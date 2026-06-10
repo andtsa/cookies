@@ -31,8 +31,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 import sync_subtypes as ss
 from utils import apply_theme, save_figure, DARK, MID, BG
 
-GAP = 0.015          # vertical gap between stacked nodes (axis fraction)
-NODE_W = 0.035       # node rectangle width (axis fraction)
+GAP = 0.015  # vertical gap between stacked nodes (axis fraction)
+NODE_W = 0.035  # node rectangle width (axis fraction)
 RIBBON_ALPHA = 0.5
 
 
@@ -51,21 +51,31 @@ def _ribbon(ax, x0, x1, y0_l, y1_l, y0_r, y1_r, color):
     """Filled Bezier band between left edge [y0_l,y1_l] and right edge [y0_r,y1_r]."""
     cx = (x0 + x1) / 2.0
     verts = [
-        (x0, y1_l),                       # start top-left
-        (cx, y1_l), (cx, y1_r), (x1, y1_r),   # top edge curve
-        (x1, y0_r),                       # down right edge
-        (cx, y0_r), (cx, y0_l), (x0, y0_l),   # bottom edge curve back
-        (x0, y1_l),                       # close
+        (x0, y1_l),  # start top-left
+        (cx, y1_l),
+        (cx, y1_r),
+        (x1, y1_r),  # top edge curve
+        (x1, y0_r),  # down right edge
+        (cx, y0_r),
+        (cx, y0_l),
+        (x0, y0_l),  # bottom edge curve back
+        (x0, y1_l),  # close
     ]
     codes = [
         Path.MOVETO,
-        Path.CURVE4, Path.CURVE4, Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
         Path.LINETO,
-        Path.CURVE4, Path.CURVE4, Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
+        Path.CURVE4,
         Path.CLOSEPOLY,
     ]
     ax.add_patch(
-        PathPatch(Path(verts, codes), facecolor=color, edgecolor="none", alpha=RIBBON_ALPHA)
+        PathPatch(
+            Path(verts, codes), facecolor=color, edgecolor="none", alpha=RIBBON_ALPHA
+        )
     )
 
 
@@ -89,8 +99,8 @@ def plot_sankey(data_dir: str, out_dir: str, top: int) -> None:
         return ss.fold_other(e["to_domain"], dst_keep)
 
     # Flows between the three stages.
-    f_sc = Counter((src(e), e["carrier"]) for e in events)      # source -> carrier
-    f_ct = Counter((e["carrier"], dst(e)) for e in events)      # carrier -> dest
+    f_sc = Counter((src(e), e["carrier"]) for e in events)  # source -> carrier
+    f_ct = Counter((e["carrier"], dst(e)) for e in events)  # carrier -> dest
 
     # Node orders: domains by volume; carriers by canonical vocabulary.
     col0 = Counter()
@@ -100,8 +110,11 @@ def plot_sankey(data_dir: str, out_dir: str, top: int) -> None:
         col2[dst(e)] += 1
     col0_nodes = col0.most_common()
     col2_nodes = col2.most_common()
-    col1_nodes = [(c, sum(v for (cc, _), v in f_ct.items() if cc == c))
-                  for c in ss.CARRIERS if any(cc == c for (cc, _) in f_ct)]
+    col1_nodes = [
+        (c, sum(v for (cc, _), v in f_ct.items() if cc == c))
+        for c in ss.CARRIERS
+        if any(cc == c for (cc, _) in f_ct)
+    ]
 
     col0_order = [n for n, _ in col0_nodes]
     col1_order = [n for n, _ in col1_nodes]
@@ -119,30 +132,66 @@ def plot_sankey(data_dir: str, out_dir: str, top: int) -> None:
     fig, ax = plt.subplots(figsize=(14, max(7, 0.5 * max_nodes + 3)))
 
     # Draw node rectangles.
-    box = dict(facecolor=BG, edgecolor="none", alpha=0.78, pad=1.2, boxstyle="round,pad=0.2")
+    box = dict(
+        facecolor=BG, edgecolor="none", alpha=0.78, pad=1.2, boxstyle="round,pad=0.2"
+    )
 
     def _draw_nodes(pos, x, align):
         for label, (yb, yt, _top) in pos.items():
-            ax.add_patch(plt.Rectangle((x, yb), NODE_W, yt - yb, facecolor=DARK, edgecolor=BG, linewidth=0.5))
+            ax.add_patch(
+                plt.Rectangle(
+                    (x, yb),
+                    NODE_W,
+                    yt - yb,
+                    facecolor=DARK,
+                    edgecolor=BG,
+                    linewidth=0.5,
+                )
+            )
             ymid = (yb + yt) / 2.0
             if align == "left":
-                ax.text(x - 0.008, ymid, label, ha="right", va="center", fontsize=8, color=DARK)
+                ax.text(
+                    x - 0.008,
+                    ymid,
+                    label,
+                    ha="right",
+                    va="center",
+                    fontsize=8,
+                    color=DARK,
+                )
             elif align == "right":
-                ax.text(x + NODE_W + 0.008, ymid, label, ha="left", va="center", fontsize=8, color=DARK)
+                ax.text(
+                    x + NODE_W + 0.008,
+                    ymid,
+                    label,
+                    ha="left",
+                    va="center",
+                    fontsize=8,
+                    color=DARK,
+                )
             else:
                 # Carrier column sits amid ribbons: a backing box keeps it legible.
-                ax.text(x + NODE_W / 2, ymid, label, ha="center", va="center",
-                        fontsize=8, color=DARK, bbox=box, zorder=5)
+                ax.text(
+                    x + NODE_W / 2,
+                    ymid,
+                    label,
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color=DARK,
+                    bbox=box,
+                    zorder=5,
+                )
 
     _draw_nodes(p0, x0, "left")
     _draw_nodes(p1, x1, "center")
     _draw_nodes(p2, x2, "right")
 
     # Out/in cursors track how far down each node's edge we've consumed.
-    out0 = {n: p0[n][1] for n in col0_order}      # source right edge
-    in1 = {n: p1[n][1] for n in col1_order}        # carrier left edge
-    out1 = {n: p1[n][1] for n in col1_order}       # carrier right edge
-    in2 = {n: p2[n][1] for n in col2_order}        # dest left edge
+    out0 = {n: p0[n][1] for n in col0_order}  # source right edge
+    in1 = {n: p1[n][1] for n in col1_order}  # carrier left edge
+    out1 = {n: p1[n][1] for n in col1_order}  # carrier right edge
+    in2 = {n: p2[n][1] for n in col2_order}  # dest left edge
 
     # Stage 1: source -> carrier, nested source(outer) x carrier(inner).
     for s in col0_order:
@@ -153,7 +202,9 @@ def plot_sankey(data_dir: str, out_dir: str, top: int) -> None:
             h = w * unit
             yl1, yl0 = out0[s], out0[s] - h
             yr1, yr0 = in1[c], in1[c] - h
-            _ribbon(ax, x0 + NODE_W, x1, yl0, yl1, yr0, yr1, ss.CARRIER_COLORS.get(c, MID))
+            _ribbon(
+                ax, x0 + NODE_W, x1, yl0, yl1, yr0, yr1, ss.CARRIER_COLORS.get(c, MID)
+            )
             out0[s] -= h
             in1[c] -= h
 
@@ -166,22 +217,34 @@ def plot_sankey(data_dir: str, out_dir: str, top: int) -> None:
             h = w * unit
             yl1, yl0 = out1[c], out1[c] - h
             yr1, yr0 = in2[d], in2[d] - h
-            _ribbon(ax, x1 + NODE_W, x2, yl0, yl1, yr0, yr1, ss.CARRIER_COLORS.get(c, MID))
+            _ribbon(
+                ax, x1 + NODE_W, x2, yl0, yl1, yr0, yr1, ss.CARRIER_COLORS.get(c, MID)
+            )
             out1[c] -= h
             in2[d] -= h
 
     from matplotlib.patches import Patch
+
     ax.legend(
-        handles=[Patch(facecolor=ss.CARRIER_COLORS[c], label=c, alpha=RIBBON_ALPHA) for c in col1_order],
-        title="carrier", loc="lower center", bbox_to_anchor=(0.5, -0.08),
-        ncol=len(col1_order), fontsize=9, title_fontsize=10,
+        handles=[
+            Patch(facecolor=ss.CARRIER_COLORS[c], label=c, alpha=RIBBON_ALPHA)
+            for c in col1_order
+        ],
+        title="carrier",
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.08),
+        ncol=len(col1_order),
+        fontsize=9,
+        title_fontsize=10,
     )
     ax.set_xlim(-0.12, 1.12)
     ax.set_ylim(-0.02, 1.06)
     ax.axis("off")
     ax.set_title(
         f"Cookie-Sync Flow:  source  ->  carrier  ->  receiver   (top {top} domains/side)",
-        fontsize=16, fontweight="bold", pad=10,
+        fontsize=16,
+        fontweight="bold",
+        pad=10,
     )
     plt.tight_layout()
     save_figure(out_dir, "plot_sync_sankey.png", "plot_sync_sankey.pdf")

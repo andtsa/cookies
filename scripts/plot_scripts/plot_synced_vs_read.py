@@ -116,8 +116,14 @@ def plot_synced_vs_read(data_dir: str, out_dir: str, top_n: int = 25) -> None:
     fig, ax = plt.subplots(figsize=(11, 8))
     if df.empty:
         ax.text(
-            0.5, 0.5, "No sync or read events found",
-            ha="center", va="center", transform=ax.transAxes, fontsize=14, color=DARK,
+            0.5,
+            0.5,
+            "No sync or read events found",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=14,
+            color=DARK,
         )
         ax.axis("off")
         save_figure(out_dir, "sync_vs_reads.png", "sync_vs_reads.pdf")
@@ -126,8 +132,12 @@ def plot_synced_vs_read(data_dir: str, out_dir: str, top_n: int = 25) -> None:
     top = df.head(top_n).iloc[::-1]  # largest on top after barh
     y = np.arange(len(top))
     h = 0.4
-    ax.barh(y + h / 2, top["Syncs"], height=h, color=ACCENT, edgecolor=BG, label="Syncs")
-    ax.barh(y - h / 2, top["Reads"], height=h, color=ACCENT2, edgecolor=BG, label="Reads")
+    ax.barh(
+        y + h / 2, top["Syncs"], height=h, color=ACCENT, edgecolor=BG, label="Syncs"
+    )
+    ax.barh(
+        y - h / 2, top["Reads"], height=h, color=ACCENT2, edgecolor=BG, label="Reads"
+    )
     ax.set_yticks(y)
     ax.set_yticklabels(top["Domain"])
     ax.set_xlabel("Events")

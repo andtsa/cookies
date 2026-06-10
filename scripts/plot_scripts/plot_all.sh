@@ -42,11 +42,13 @@ python "$scripts"/plot_cookie_survival.py --data "$data" --out plots/cookie_life
 python "$scripts"/plot_cross_browser.py --data "$data" --out plots/cross_browser
 python "$scripts"/plot_ep_effectiveness.py --data "$data" --out plots/trackers
 python "$scripts"/plot_lifetime_buckets.py --data "$data" --out plots/cookie_lifetime
+python "$scripts"/plot_lifetime_survival.py --data "$data" --out plots/cookie_lifetime
 python "$scripts"/plot_longterm_offenders.py --data "$data" --out plots/cookie_lifetime --top_n 25
 python "$scripts"/plot_scatter.py --data "$data" --out plots/cookie_lifetime
 python "$scripts"/plot_security_flags.py --data "$data" --out plots/cookie_lifetime
 python "$scripts"/plot_session_vs_persistent_donut.py --data "$data" --out plots/cookie_lifetime
 python "$scripts"/plot_third_party_setters.py --data "$data" --out plots/third_party
+python "$scripts"/plot_first_vs_third_party.py --data "$data" --out plots/third_party
 python "$scripts"/plot_tracker_by_lifetime.py --data "$data" --out plots/trackers
 python "$scripts"/plot_tracker_donut.py --data "$data" --out plots/trackers
 python "$scripts"/plot_tracker_offenders.py --data "$data" --out plots/trackers --top_n 25

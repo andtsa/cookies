@@ -62,9 +62,7 @@ def plot_bar(data_dir: str, out_dir: str, top: int, by: str) -> None:
 
     # Stack categories in the vocabulary's canonical order (+ any stragglers).
     cats = [c for c in order if any(bc.get(c) for bc in bar_counts)]
-    cats += sorted(
-        {c for bc in bar_counts for c in bc if c not in order}
-    )
+    cats += sorted({c for bc in bar_counts for c in bc if c not in order})
 
     fig, ax = plt.subplots(figsize=(max(9, 1.0 * len(bar_labels) + 3), 7))
     x = range(len(bar_labels))
@@ -72,21 +70,34 @@ def plot_bar(data_dir: str, out_dir: str, top: int, by: str) -> None:
     for cat in cats:
         vals = [bc.get(cat, 0) for bc in bar_counts]
         ax.bar(
-            x, vals, bottom=bottom, label=cat,
-            color=colors.get(cat, DARK), edgecolor="white", linewidth=0.4, width=0.8,
+            x,
+            vals,
+            bottom=bottom,
+            label=cat,
+            color=colors.get(cat, DARK),
+            edgecolor="white",
+            linewidth=0.4,
+            width=0.8,
         )
         bottom = [b + v for b, v in zip(bottom, vals)]
 
     ax.set_xticks(list(x))
     ax.set_xticklabels(bar_labels, rotation=45, ha="right", fontsize=9)
     ax.set_ylabel("sync rows (per-param)")
-    ax.set_title(f"Cookie-Sync Subtype Composition by {by}", fontsize=17, fontweight="bold", pad=14)
+    ax.set_title(
+        f"Cookie-Sync Subtype Composition by {by}",
+        fontsize=17,
+        fontweight="bold",
+        pad=14,
+    )
     # Visual divider after the ALL aggregate bar.
     ax.axvline(0.5, color=DARK, linewidth=0.8, alpha=0.4, linestyle=":")
     ax.legend(title=by, fontsize=10, title_fontsize=11, loc="upper right")
     ax.margins(x=0.01)
     plt.tight_layout()
-    save_figure(out_dir, f"plot_sync_subtypes_bar_{by}.png", f"plot_sync_subtypes_bar_{by}.pdf")
+    save_figure(
+        out_dir, f"plot_sync_subtypes_bar_{by}.png", f"plot_sync_subtypes_bar_{by}.pdf"
+    )
 
     ss.print_subtype_report(events)
 
