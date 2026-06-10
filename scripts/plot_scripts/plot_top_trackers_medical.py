@@ -54,6 +54,8 @@ COMPANY_NAMES = {
     "bluekai.com":          "Oracle BlueKai",
     "krxd.net":             "Salesforce Krux",
     "quantserve.com":       "Quantcast",
+    "vimeo.com":            "Bending Spoons",
+    "dpm.demdex.net":       "Adobe",
     "nr-data.net":          "New Relic",
 }
 
