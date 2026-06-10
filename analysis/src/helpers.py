@@ -10,6 +10,12 @@ import tldextract
 # filter so the threshold lives in one place.
 HIGH_ENTROPY_BITS = 36.0
 
+# Lower bar used specifically for the corroborated confirmation rule
+# (list match + third-party deployment + capability): when two independent
+# strong signals already agree, a value only needs enough bits to plausibly
+# carry an identifier — far less than the standalone HIGH_ENTROPY_BITS cutoff.
+CORROBORATED_ENTROPY_BITS = 12.0
+
 # Lifetime buckets (ordered) and a matching colour ramp, absorbed from
 # plot_scripts/utils.py so the package owns the canonical definition and the
 # plot util can re-export it.

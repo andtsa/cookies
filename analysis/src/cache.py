@@ -20,7 +20,9 @@ import pandas as pd
 from .progress import track
 
 # Bump when the enriched column schema changes so old caches are ignored.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = (
+    3  # added party_type, set_by_third_party, lifetime_bucket, tld, ... columns
+)
 
 
 def dir_fingerprint(paths: list[Path], config_repr: str) -> str:
@@ -57,6 +59,12 @@ def load(cache_dir: str, key: str) -> tuple[pd.DataFrame, pd.DataFrame] | None:
     """Return cached ``(cookies, sites)`` for ``key`` or None if absent."""
     p = _paths(cache_dir, key)
     if not p["meta"].exists():
+        return None
+    try:
+        meta = json.loads(p["meta"].read_text())
+        if meta.get("schema_version") != SCHEMA_VERSION:
+            return None
+    except Exception:
         return None
     try:
         if p["cookies"].exists() and p["sites"].exists():

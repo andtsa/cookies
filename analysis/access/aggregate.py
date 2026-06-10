@@ -16,7 +16,11 @@ class AggregateAccess:
 
     def filter(self, **conditions) -> pd.DataFrame:
         """Rows of `cookies` matching every `column=value` pair (e.g.
-        `ds.filter(country="Netherlands", is_tracker=True)`).
+        `ds.filter(country="Netherlands", is_tracker_listed=True)`).
+
+        Note: ``is_tracker_listed`` is the raw list-membership boolean on
+        :attr:`cookies`. For the classification-based canonical boolean use
+        :attr:`classified_cookies` directly and filter on ``is_tracker``.
         """
         return self._scan(where=conditions)
 
@@ -41,7 +45,10 @@ class AggregateAccess:
 
         2. `where` pre-filters by `column=value` pairs
 
-        3. trackers_only: consider only tracker cookies (i.e. `is_tracker` is `True`)
+        3. `trackers_only`: restrict to cookies where ``is_tracker`` is ``True`` —
+           the unified classification-based boolean (``tracker_tier >= "probable"``).
+           Uses :attr:`classified_cookies` as the source frame so the definition
+           is consistent with any direct access to that frame.
 
         4. pass an explicit `df` to run the `group()` operation over other data (not the dataset loaded by `CookiesDataset`)
         """
@@ -50,11 +57,19 @@ class AggregateAccess:
             if where:
                 for col, val in where.items():
                     frame = frame[frame[col] == val]
+        elif trackers_only:
+            # classified_cookies is the canonical source for is_tracker
+            # (tier >= probable). Don't go through _scan/cookies here — that
+            # frame carries the list-only is_tracker, not the unified one.
+            frame = self.classified_cookies
+            if where:
+                for col, val in where.items():
+                    frame = frame[frame[col] == val]
         else:
-            cols = set(by) | ({"is_tracker"} if trackers_only else set())
+            cols = set(by)
             if metric != "count":
                 cols.add(metric.split(":", 1)[1])
-            frame = self._scan(columns=sorted(cols), where=where)
+            frame = self._scan(columns=sorted(cols) if cols else None, where=where)
         if trackers_only:
             frame = frame[frame["is_tracker"]]
         grouped = frame.groupby(by, dropna=False)

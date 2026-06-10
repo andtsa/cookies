@@ -71,7 +71,7 @@ def find_shared(
 
         if third_party_only and not has_third_party:
             continue
-        if trackers_only and not any(bool(o.get("is_tracker")) for o in occs):
+        if trackers_only and not any(bool(o.get("is_tracker_listed")) for o in occs):
             continue
 
         results.append(
@@ -84,7 +84,7 @@ def find_shared(
                     1 for p in party_types if p == "first_party"
                 ),
                 "has_third_party": has_third_party,
-                "any_tracker": any(bool(o.get("is_tracker")) for o in occs),
+                "any_tracker": any(bool(o.get("is_tracker_listed")) for o in occs),
                 "domains": sorted({o.get("registered_domain", "") for o in occs}),
                 "sites": [
                     {
@@ -95,7 +95,7 @@ def find_shared(
                         "cookie_type": o.get("cookie_type", ""),
                         "party_type": o.get("party_type", "unknown"),
                         "name": o["name"],
-                        "is_tracker": bool(o.get("is_tracker")),
+                        "is_tracker_listed": bool(o.get("is_tracker_listed")),
                     }
                     for o in sorted(occs, key=lambda x: x["site"])
                 ],

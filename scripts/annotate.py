@@ -49,7 +49,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--workers",
         type=int,
-        default=(os.cpu_count() or 8) // 2,
+        default=(os.cpu_count() or 8) - 1,
         help="parallel worker processes for EasyPrivacy prefetch",
     )
     p.add_argument(
@@ -88,6 +88,15 @@ def main(argv: list[str] | None = None) -> int:
 
     print("[annotate] warming annotation (labels + relational artifacts) ...")
     classified = ds.classified_cookies
+
+    print("[annotate] warming sync-subtype + third-party-read tables ...")
+    subtype_rows = ds.sync_subtype_rows()
+    tp_reads = ds.third_party_reads()
+    print(
+        f"[annotate]   {len(subtype_rows):,} sync rows, "
+        f"{len(tp_reads):,} third-party read rows"
+    )
+
     elapsed = time.time() - t0
 
     tiers = (

@@ -12,8 +12,9 @@ Typical use::
     ds.cookies                      # lean, cacheable per-cookie DataFrame
     ds.classified_cookies           # + tiered "looks like a tracker" label
     ds.sites                        # per-site DataFrame
-    ds.group(by=["country"], metric="mean:is_tracker")
-    ds.filter(country="Netherlands", is_tracker=True)
+    ds.group(by=["country"], metric="mean:is_tracker_listed")   # list-based rate
+    ds.group(by=["country"], trackers_only=True)               # classification-based count
+    ds.filter(country="Netherlands", is_tracker_listed=True)   # list-based filter
     ds.shared(); ds.syncing(); ds.cross_domain_reads()
 
 Plots should consume :attr:`CookieDataset.cookies` / :attr:`.classified_cookies`

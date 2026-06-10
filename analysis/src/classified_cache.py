@@ -1,8 +1,7 @@
 """
 Cross-run cache for the *annotation* layer: the tiered tracker labels
-(``tracker_tier`` / ``tracker_like`` / ``tracker_signals``) plus the three
-relational artifacts they are derived from (``shared_groups``, ``sync_events``,
-``cross_domain_reads``).
+(``tracker_tier`` / ``tracker_signals``) plus the three relational artifacts
+they are derived from (``shared_groups``, ``sync_events``, ``cross_domain_reads``).
 
 The enriched ``cookies``/``sites`` frames are already cached by
 :mod:`analysis.src.cache`; this module sits one level up and persists what
@@ -10,13 +9,16 @@ The enriched ``cookies``/``sites`` frames are already cached by
 labels loads them from disk instead of recomputing three whole-dataset
 relational passes plus a per-row classification.
 
-Only the three *label columns* are stored (not a second copy of the multi-GB
+Only the two *label columns* are stored (not a second copy of the multi-GB
 cookies frame): the labels are re-joined to the already-cached ``cookies`` frame
 at load time, by position, which is sound because the cache key embeds the
 cookies fingerprint — a different cookies frame yields a different key and a
-rebuild. Layout per key:
+rebuild. The ``is_tracker`` boolean is **not** stored — it is re-derived from
+``tracker_tier >= "probable"`` at load time in
+:attr:`~analysis.CookieDataset.classified_cookies` so the definition lives in
+one place. Layout per key:
 
-    {key}.labels.parquet        # tracker_tier / tracker_like / tracker_signals
+    {key}.labels.parquet        # tracker_tier / tracker_signals
     {key}.shared.json           # shared_groups
     {key}.sync.json             # sync_events
     {key}.reads.json            # cross_domain_reads
@@ -37,9 +39,11 @@ from .classifier import TIERS
 
 # Bump when the label columns or classifier semantics change so old caches are
 # ignored even if the underlying cookies frame is unchanged.
-CLASSIFIED_SCHEMA_VERSION = 1
+# v2: removed tracker_like; is_tracker is now derived from tracker_tier >= "probable"
+#     at load time instead of being stored.
+CLASSIFIED_SCHEMA_VERSION = 2
 
-LABEL_COLUMNS = ["tracker_tier", "tracker_like", "tracker_signals"]
+LABEL_COLUMNS = ["tracker_tier", "tracker_signals"]
 
 
 def classified_fingerprint(base_key: str, extra_config_repr: str) -> str:
@@ -78,6 +82,12 @@ def load(cache_dir: str, key: str) -> tuple[pd.DataFrame, dict] | None:
     """
     p = _paths(cache_dir, key)
     if not p["meta"].exists():
+        return None
+    try:
+        meta = json.loads(p["meta"].read_text())
+        if meta.get("schema_version") != CLASSIFIED_SCHEMA_VERSION:
+            return None
+    except Exception:
         return None
     try:
         if p["labels"].exists():
