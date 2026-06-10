@@ -88,12 +88,21 @@ def main(argv: list[str] | None = None) -> int:
 
     print("[annotate] warming annotation (labels + relational artifacts) ...")
     classified = ds.classified_cookies
+
+    print("[annotate] warming sync-subtype + third-party-read tables ...")
+    subtype_rows = ds.sync_subtype_rows()
+    tp_reads = ds.third_party_reads()
+    print(
+        f"[annotate]   {len(subtype_rows):,} sync rows, "
+        f"{len(tp_reads):,} third-party read rows"
+    )
+
     elapsed = time.time() - t0
 
     tiers = (
-        classified["tracker_tier"].value_counts().reindex(
-            ["confirmed", "probable", "possible", "none"], fill_value=0
-        )
+        classified["tracker_tier"]
+        .value_counts()
+        .reindex(["confirmed", "probable", "possible", "none"], fill_value=0)
     )
     print(f"[annotate] done in {elapsed:,.1f}s. Tier distribution:")
     for tier, count in tiers.items():

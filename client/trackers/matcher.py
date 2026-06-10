@@ -165,9 +165,7 @@ class _ReEngine:
         return candidates
 
     def block_candidates(self, url: str, host: str) -> list[NetworkRule]:
-        return self._candidates(
-            url, host, self._block_domain_idx, self._block_generic
-        )
+        return self._candidates(url, host, self._block_domain_idx, self._block_generic)
 
     def except_candidates(self, url: str, host: str) -> list[NetworkRule]:
         return self._candidates(
@@ -254,12 +252,18 @@ class _HyperscanEngine:
         self._except_generic_rules: list[NetworkRule] = []
         for rule in filter_list.block_rules:
             domain = _anchor_domain(rule.pattern)
-            (self._block_domain_idx[domain].append(rule) if domain
-             else self._block_generic_rules.append(rule))
+            (
+                self._block_domain_idx[domain].append(rule)
+                if domain
+                else self._block_generic_rules.append(rule)
+            )
         for rule in filter_list.exception_rules:
             domain = _anchor_domain(rule.pattern)
-            (self._except_domain_idx[domain].append(rule) if domain
-             else self._except_generic_rules.append(rule))
+            (
+                self._except_domain_idx[domain].append(rule)
+                if domain
+                else self._except_generic_rules.append(rule)
+            )
 
         self._block_db, self._block_residual = self._build_set(
             self._block_generic_rules, cache_dir, ruleset_key, "block-gen"
@@ -432,14 +436,24 @@ class _HyperscanEngine:
 
     def block_candidates(self, url: str, host: str) -> list[NetworkRule]:
         return self._candidates(
-            url, host, self._block_domain_idx, self._block_db,
-            self._block_scratch, self._block_generic_rules, self._block_residual,
+            url,
+            host,
+            self._block_domain_idx,
+            self._block_db,
+            self._block_scratch,
+            self._block_generic_rules,
+            self._block_residual,
         )
 
     def except_candidates(self, url: str, host: str) -> list[NetworkRule]:
         return self._candidates(
-            url, host, self._except_domain_idx, self._except_db,
-            self._except_scratch, self._except_generic_rules, self._except_residual,
+            url,
+            host,
+            self._except_domain_idx,
+            self._except_db,
+            self._except_scratch,
+            self._except_generic_rules,
+            self._except_residual,
         )
 
 

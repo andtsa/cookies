@@ -20,7 +20,9 @@ import pandas as pd
 from .progress import track
 
 # Bump when the enriched column schema changes so old caches are ignored.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = (
+    3  # added party_type, set_by_third_party, lifetime_bucket, tld, ... columns
+)
 
 
 def dir_fingerprint(paths: list[Path], config_repr: str) -> str:

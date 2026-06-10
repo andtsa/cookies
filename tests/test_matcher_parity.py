@@ -105,7 +105,9 @@ def test_hyperscan_matches_re_on_real_urls():
         pytest.skip(f"no request URLs found under {data_dir}")
 
     engine, mismatches = _compare(fl, triples)
-    assert engine == "hyperscan", "hyperscan engine failed to build; cannot assert parity"
+    assert (
+        engine == "hyperscan"
+    ), "hyperscan engine failed to build; cannot assert parity"
 
     if mismatches:
         sample = "\n".join(
