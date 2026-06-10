@@ -83,10 +83,11 @@ def plot_lifetime_survival(data_dir: str, out_dir: str):
         ax.plot(x, curve, "o", color=color, markersize=5, zorder=3)
 
         for xi, val in zip(x, curve):
-            ax.text(
-                xi,
-                val + 2,
+            ax.annotate(
                 f"{val}%",
+                xy=(xi, val),
+                xytext=(0, 8),
+                textcoords="offset points",
                 ha="center",
                 va="bottom",
                 fontsize=9,

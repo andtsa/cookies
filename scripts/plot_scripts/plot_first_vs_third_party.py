@@ -116,14 +116,17 @@ def plot_first_vs_third_party(data_dir: str, out_dir: str):
     ax.legend(
         handles=[bars_first, bars_third],
         labels=["First-party", "Third-party"],
-        loc="lower right",
+        loc="lower left",
+        bbox_to_anchor=(0, 1.02, 1, 0.08),
+        ncols=2,
+        mode="expand",
         fontsize=10,
         frameon=False,
     )
 
     ax.set_title(
         "First-party vs Third-party: All Cookies and Trackers",
-        pad=10,
+        pad=36,
         fontsize=13,
     )
 
