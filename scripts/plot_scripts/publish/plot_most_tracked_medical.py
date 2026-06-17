@@ -42,23 +42,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.dirname(__file__))
-
-from utils import (  # noqa: E402
-    apply_theme,
-    save_figure,
-    dataset,
-    gradient_colors,
-    BG,
-    COLORS,
-    ACCENT,
-    ACCENT2,
-    DARK,
-    MID,
-    LIGHT,
-)
+from scripts.plot_scripts.utils import *
 
 try:
     import tldextract  # the repo already depends on this
@@ -118,7 +102,9 @@ def site_tracking_table(data_dir, health_csv, country, browser):
     g_total = sub.groupby("registered_domain").size().rename("n_total")
     g_trk = trk.groupby("registered_domain").size().rename("n_tracker")
     g_prov = (
-        trk.groupby("registered_domain")["tracker_provider"].nunique().rename("n_providers")
+        trk.groupby("registered_domain")["tracker_provider"]
+        .nunique()
+        .rename("n_providers")
     )
     out = (
         g_total.to_frame()
@@ -140,10 +126,14 @@ RANK_COL = {"trackers": "n_tracker", "providers": "n_providers", "pct": "pct_tra
 
 def _footer(fig, meta):
     fig.text(
-        0.5, 0.005,
+        0.5,
+        0.005,
         f"{meta['country']} · {meta['browser']} · {meta['n_sites']:,} health sites "
         f"matched · {meta['n_tracker_cookies']:,} tracker cookies",
-        ha="center", va="bottom", fontsize=9, color=MID,
+        ha="center",
+        va="bottom",
+        fontsize=9,
+        color=MID,
     )
 
 
@@ -168,12 +158,23 @@ def plot_bar(top, out_dir, meta, rank_by):
     for bar, n_t, n_p in zip(bars, top["n_tracker"], top["n_providers"]):
         primary = bar.get_width()
         ax.text(
-            primary + pad, bar.get_y() + bar.get_height() / 2,
-            f"{int(primary)}" + (f"  ·  {n_p} trackers" if rank_by != "providers" else f"  ·  {n_t} cookies"),
-            va="center", fontsize=9, color=DARK,
+            primary + pad,
+            bar.get_y() + bar.get_height() / 2,
+            f"{int(primary)}"
+            + (
+                f"  ·  {n_p} trackers"
+                if rank_by != "providers"
+                else f"  ·  {n_t} cookies"
+            ),
+            va="center",
+            fontsize=9,
+            color=DARK,
         )
-    label = {"trackers": "# tracker cookies", "providers": "# distinct trackers",
-             "pct": "% tracker cookies"}[rank_by]
+    label = {
+        "trackers": "# tracker cookies",
+        "providers": "# distinct trackers",
+        "pct": "% tracker cookies",
+    }[rank_by]
     ax.set_xlabel(label)
     ax.set_xlim(0, max(vals) * 1.22)
     ax.grid(axis="x", alpha=0.3)
@@ -181,8 +182,11 @@ def plot_bar(top, out_dir, meta, rank_by):
     ax.set_title(f"Most Tracked Medical Websites — top {len(top)}", fontsize=14, pad=10)
     _footer(fig, meta)
     plt.tight_layout(rect=(0, 0.03, 1, 1))
-    save_figure(out_dir, "plot_most_tracked_medical_bar.png",
-                "plot_most_tracked_medical_bar.pdf")
+    save_figure(
+        out_dir,
+        "plot_most_tracked_medical_bar.png",
+        "plot_most_tracked_medical_bar.pdf",
+    )
 
 
 def plot_lollipop(top, out_dir, meta, rank_by):
@@ -200,8 +204,11 @@ def plot_lollipop(top, out_dir, meta, rank_by):
     pad = max(vals) * 0.02
     for v, yy in zip(vals, y):
         ax.text(v + pad, yy, f"{int(v)}", va="center", fontsize=9, color=DARK)
-    label = {"trackers": "# tracker cookies", "providers": "# distinct trackers",
-             "pct": "% tracker cookies"}[rank_by]
+    label = {
+        "trackers": "# tracker cookies",
+        "providers": "# distinct trackers",
+        "pct": "% tracker cookies",
+    }[rank_by]
     ax.set_xlabel(label)
     ax.set_xlim(0, max(vals) * 1.18)
     ax.grid(axis="x", alpha=0.3)
@@ -209,8 +216,11 @@ def plot_lollipop(top, out_dir, meta, rank_by):
     ax.set_title(f"Most Tracked Medical Websites — top {len(top)}", fontsize=14, pad=10)
     _footer(fig, meta)
     plt.tight_layout(rect=(0, 0.03, 1, 1))
-    save_figure(out_dir, "plot_most_tracked_medical_lollipop.png",
-                "plot_most_tracked_medical_lollipop.pdf")
+    save_figure(
+        out_dir,
+        "plot_most_tracked_medical_lollipop.png",
+        "plot_most_tracked_medical_lollipop.pdf",
+    )
 
 
 def plot_stacked(top, out_dir, meta, rank_by):
@@ -222,15 +232,28 @@ def plot_stacked(top, out_dir, meta, rank_by):
 
     fig, ax = plt.subplots(figsize=(11, 0.45 * len(top) + 2))
     ax.barh(y, n_trk, color=ACCENT, edgecolor=BG, height=0.74, label="Tracker cookies")
-    ax.barh(y, n_other, left=n_trk, color=LIGHT, edgecolor=BG, height=0.74,
-            label="Other cookies")
+    ax.barh(
+        y,
+        n_other,
+        left=n_trk,
+        color=LIGHT,
+        edgecolor=BG,
+        height=0.74,
+        label="Other cookies",
+    )
     ax.set_yticks(y)
     ax.set_yticklabels(sites, fontsize=10)
     totals = top["n_total"].to_numpy()
     pad = max(totals) * 0.012
     for yy, n_t, tot, pct in zip(y, n_trk, totals, top["pct_tracker"]):
-        ax.text(tot + pad, yy, f"{int(n_t)}/{int(tot)}  ({pct:.0f}%)",
-                va="center", fontsize=9, color=DARK)
+        ax.text(
+            tot + pad,
+            yy,
+            f"{int(n_t)}/{int(tot)}  ({pct:.0f}%)",
+            va="center",
+            fontsize=9,
+            color=DARK,
+        )
     ax.set_xlabel("# cookies (tracker + other)")
     ax.set_xlim(0, max(totals) * 1.25)
     ax.grid(axis="x", alpha=0.3)
@@ -239,8 +262,11 @@ def plot_stacked(top, out_dir, meta, rank_by):
     ax.set_title(f"Most Tracked Medical Websites — top {len(top)}", fontsize=14, pad=10)
     _footer(fig, meta)
     plt.tight_layout(rect=(0, 0.03, 1, 1))
-    save_figure(out_dir, "plot_most_tracked_medical_stacked.png",
-                "plot_most_tracked_medical_stacked.pdf")
+    save_figure(
+        out_dir,
+        "plot_most_tracked_medical_stacked.png",
+        "plot_most_tracked_medical_stacked.pdf",
+    )
 
 
 def plot_bubble(top, out_dir, meta, rank_by):
@@ -252,45 +278,81 @@ def plot_bubble(top, out_dir, meta, rank_by):
     colors = gradient_colors(size)
 
     fig, ax = plt.subplots(figsize=(11, 7.5))
-    ax.scatter(x, yv, s=sizes, c=colors, edgecolor=DARK, linewidth=0.6, alpha=0.9, zorder=2)
+    ax.scatter(
+        x, yv, s=sizes, c=colors, edgecolor=DARK, linewidth=0.6, alpha=0.9, zorder=2
+    )
     for xi, yi, lbl in zip(x, yv, top["site"]):
-        ax.annotate(lbl, (xi, yi), xytext=(5, 4), textcoords="offset points",
-                    fontsize=8.5, color=DARK)
+        ax.annotate(
+            lbl,
+            (xi, yi),
+            xytext=(5, 4),
+            textcoords="offset points",
+            fontsize=8.5,
+            color=DARK,
+        )
     ax.set_xlabel("# total cookies on site")
     ax.set_ylabel("# distinct trackers")
     ax.grid(alpha=0.3)
     ax.spines[["top", "right"]].set_visible(False)
     ax.set_title(
         f"Most Tracked Medical Websites — top {len(top)} (bubble = tracker cookies)",
-        fontsize=14, pad=10,
+        fontsize=14,
+        pad=10,
     )
     # size legend
     for ref in sorted({int(size.min()), int(np.median(size)), int(size.max())}):
-        ax.scatter([], [], s=60 + (ref / max(size.max(), 1)) * 900,
-                   c=ACCENT2, edgecolor=DARK, linewidth=0.6, label=f"{ref} tracker cookies")
-    ax.legend(fontsize=9, loc="upper left", labelspacing=1.4, borderpad=1.0,
-              title="bubble size", title_fontsize=8)
+        ax.scatter(
+            [],
+            [],
+            s=60 + (ref / max(size.max(), 1)) * 900,
+            c=ACCENT2,
+            edgecolor=DARK,
+            linewidth=0.6,
+            label=f"{ref} tracker cookies",
+        )
+    ax.legend(
+        fontsize=9,
+        loc="upper left",
+        labelspacing=1.4,
+        borderpad=1.0,
+        title="bubble size",
+        title_fontsize=8,
+    )
     _footer(fig, meta)
     plt.tight_layout(rect=(0, 0.03, 1, 1))
-    save_figure(out_dir, "plot_most_tracked_medical_bubble.png",
-                "plot_most_tracked_medical_bubble.pdf")
+    save_figure(
+        out_dir,
+        "plot_most_tracked_medical_bubble.png",
+        "plot_most_tracked_medical_bubble.pdf",
+    )
 
 
-VIEWS = {"bar": plot_bar, "lollipop": plot_lollipop, "stacked": plot_stacked,
-         "bubble": plot_bubble}
+VIEWS = {
+    "bar": plot_bar,
+    "lollipop": plot_lollipop,
+    "stacked": plot_stacked,
+    "bubble": plot_bubble,
+}
 
 
 def main(data_dir, health_csv, country, browser, out_dir, kind, top_n, rank_by):
     print("Loading health-site tracking table…")
     df = site_tracking_table(data_dir, health_csv, country, browser)
     if df.empty:
-        print(f"No health sites matched for {country}/{browser}. "
-              f"Check --health, --country, --browser.")
+        print(
+            f"No health sites matched for {country}/{browser}. "
+            f"Check --health, --country, --browser."
+        )
         return
 
-    top = df.sort_values(RANK_COL[rank_by], ascending=False).head(top_n).reset_index(drop=True)
+    top = (
+        df.sort_values(RANK_COL[rank_by], ascending=False)
+        .head(top_n)
+        .reset_index(drop=True)
+    )
     meta = {
-        "country": country, "browser": browser,
+        "country": country,
+        "browser": browser,
         "n_sites": int((df["n_tracker"] > 0).sum()),
         "n_tracker_cookies": int(df["n_tracker"].sum()),
     }
@@ -308,17 +370,32 @@ if __name__ == "__main__":
         description="Rank medical/health websites by how heavily tracked they are."
     )
     parser.add_argument("--data", default=os.path.join(ROOT, "cookies_data"))
-    parser.add_argument("--health", default=os.path.join(ROOT, "health_websites_1K.csv"),
-                        help="Health site CSV (domain or rank,url columns).")
+    parser.add_argument(
+        "--health",
+        default=os.path.join(ROOT, "health_websites_1K.csv"),
+        help="Health site CSV (domain or rank,url columns).",
+    )
     parser.add_argument("--country", default="Netherlands")
     parser.add_argument("--browser", default="chromium")
     parser.add_argument("--out", default=os.path.join(ROOT, "plots", "medical"))
-    parser.add_argument("--kind", default="all",
-                        choices=["all", "bar", "lollipop", "stacked", "bubble"])
+    parser.add_argument(
+        "--kind", default="all", choices=["all", "bar", "lollipop", "stacked", "bubble"]
+    )
     parser.add_argument("--top-n", type=int, default=15)
-    parser.add_argument("--rank-by", default="trackers",
-                        choices=["trackers", "providers", "pct"],
-                        help="Rank/measure sites by tracker cookies, distinct trackers, or %%.")
+    parser.add_argument(
+        "--rank-by",
+        default="trackers",
+        choices=["trackers", "providers", "pct"],
+        help="Rank/measure sites by tracker cookies, distinct trackers, or %%.",
+    )
     args = parser.parse_args()
-    main(args.data, args.health, args.country, args.browser, args.out,
-         args.kind, args.top_n, args.rank_by)
+    main(
+        args.data,
+        args.health,
+        args.country,
+        args.browser,
+        args.out,
+        args.kind,
+        args.top_n,
+        args.rank_by,
+    )

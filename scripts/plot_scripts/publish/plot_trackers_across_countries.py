@@ -23,20 +23,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "scripts", "plot_scripts"))
-
-from utils import (
-    apply_theme,
-    dataset,
-    ACCENT,
-    ACCENT2,
-    DARK,
-    LIGHT,
-    MID,
-    BG,
-)
+from scripts.plot_scripts.utils import *
 
 BROWSER = "chromium"
 
@@ -92,7 +79,8 @@ def plot_tracker_reach(per_country: dict, out_dir: str) -> None:
     ax.set_ylim(0, min(100, max(values) * 1.18))
     ax.set_title(
         "Sites Exposed to at Least One Tracker Cookie",
-        fontweight="bold", color=DARK,
+        fontweight="bold",
+        color=DARK,
     )
     ax.spines[["top", "right"]].set_visible(False)
     ax.yaxis.set_major_formatter(mticker.PercentFormatter())
@@ -113,8 +101,9 @@ def plot_tracker_load(per_country: dict, out_dir: str) -> None:
     data = [data[i] for i in order]
 
     fig, ax = plt.subplots(figsize=(7, 4.5))
-    parts = ax.violinplot(data, positions=np.arange(len(labels)), showmedians=False,
-                          showextrema=False)
+    parts = ax.violinplot(
+        data, positions=np.arange(len(labels)), showmedians=False, showextrema=False
+    )
     for pc in parts["bodies"]:
         pc.set_facecolor(ACCENT)
         pc.set_alpha(0.75)
@@ -125,15 +114,23 @@ def plot_tracker_load(per_country: dict, out_dir: str) -> None:
     for i, d in enumerate(data):
         med = np.median(d)
         ax.scatter(i, med, color=DARK, s=40, zorder=3)
-        ax.text(i, med + 0.25, f"{med:.1f}", ha="center", va="bottom",
-                fontsize=8.5, color=DARK)
+        ax.text(
+            i,
+            med + 0.25,
+            f"{med:.1f}",
+            ha="center",
+            va="bottom",
+            fontsize=8.5,
+            color=DARK,
+        )
 
     ax.set_xticks(np.arange(len(labels)))
     ax.set_xticklabels(labels, fontsize=11)
     ax.set_ylabel("Tracker Cookies per Site", fontsize=10)
     ax.set_title(
         "Tracker Cookie Load per Site",
-        fontweight="bold", color=DARK,
+        fontweight="bold",
+        color=DARK,
     )
     ax.spines[["top", "right"]].set_visible(False)
 
@@ -149,7 +146,9 @@ def plot_lifetime_by_country(per_country: dict, out_dir: str) -> None:
     for c in countries:
         days = per_country[c]["persistent_lifetime_days"]
         if len(days) == 0:
-            medians.append(0); q25s.append(0); q75s.append(0)
+            medians.append(0)
+            q25s.append(0)
+            q75s.append(0)
             continue
         medians.append(np.median(days))
         q25s.append(np.percentile(days, 25))
@@ -157,31 +156,47 @@ def plot_lifetime_by_country(per_country: dict, out_dir: str) -> None:
 
     # Sort by median descending
     order = np.argsort(medians)[::-1]
-    labels   = [labels[i]  for i in order]
-    medians  = [medians[i] for i in order]
-    err_low  = [medians[i] - q25s[order[i]] for i in range(len(order))]
+    labels = [labels[i] for i in order]
+    medians = [medians[i] for i in order]
+    err_low = [medians[i] - q25s[order[i]] for i in range(len(order))]
     err_high = [q75s[order[i]] - medians[i] for i in range(len(order))]
 
     fig, ax = plt.subplots(figsize=(7, 4.5))
     x = np.arange(len(labels))
     ax.bar(x, medians, color=ACCENT2, width=0.55, zorder=2)
-    ax.errorbar(x, medians, yerr=[err_low, err_high], fmt="none",
-                color=DARK, capsize=5, linewidth=1.4, zorder=3)
+    ax.errorbar(
+        x,
+        medians,
+        yerr=[err_low, err_high],
+        fmt="none",
+        color=DARK,
+        capsize=5,
+        linewidth=1.4,
+        zorder=3,
+    )
 
     # 1-year reference line
     ax.axhline(365, color=LIGHT, linestyle="--", linewidth=1.2, label="1 year")
     ax.legend(fontsize=9)
 
     for xi, med in zip(x, medians):
-        ax.text(xi, med + max(err_high) * 0.05, f"{med:.0f}d",
-                ha="center", va="bottom", fontsize=8.5, color=DARK)
+        ax.text(
+            xi,
+            med + max(err_high) * 0.05,
+            f"{med:.0f}d",
+            ha="center",
+            va="bottom",
+            fontsize=8.5,
+            color=DARK,
+        )
 
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=11)
     ax.set_ylabel("Lifetime (days)", fontsize=10)
     ax.set_title(
         "Persistent Tracker Cookie Lifetime by Country",
-        fontweight="bold", color=DARK,
+        fontweight="bold",
+        color=DARK,
     )
     ax.spines[["top", "right"]].set_visible(False)
     ax.set_ylim(0, max(medians) * 1.3)
@@ -196,11 +211,14 @@ def plot_provider_heatmap(per_country: dict, top_n: int, out_dir: str) -> None:
 
     # Collect global top providers by average prevalence across countries
     from collections import defaultdict
+
     provider_scores: dict[str, float] = defaultdict(float)
     for c in countries:
         for prov, pct in per_country[c]["provider_prevalence"].items():
             provider_scores[prov] += pct
-    top_providers = sorted(provider_scores, key=provider_scores.get, reverse=True)[:top_n]
+    top_providers = sorted(provider_scores, key=provider_scores.get, reverse=True)[
+        :top_n
+    ]
 
     # Build matrix: rows = providers, cols = countries
     matrix = np.zeros((len(top_providers), len(countries)))
@@ -224,8 +242,9 @@ def plot_provider_heatmap(per_country: dict, top_n: int, out_dir: str) -> None:
         for j in range(len(countries)):
             val = matrix[i, j]
             color = "white" if val > thresh else DARK
-            ax.text(j, i, f"{val:.1f}%", ha="center", va="center",
-                    fontsize=7.5, color=color)
+            ax.text(
+                j, i, f"{val:.1f}%", ha="center", va="center", fontsize=7.5, color=color
+            )
 
     cbar = fig.colorbar(im, ax=ax, shrink=0.6, pad=0.02)
     cbar.set_label("% of sites in country", fontsize=9)
@@ -233,7 +252,9 @@ def plot_provider_heatmap(per_country: dict, top_n: int, out_dir: str) -> None:
 
     ax.set_title(
         "Tracker Provider Reach Across Countries",
-        fontweight="bold", color=DARK, pad=10,
+        fontweight="bold",
+        color=DARK,
+        pad=10,
     )
     fig.tight_layout()
 
@@ -299,8 +320,14 @@ def main():
     parser.add_argument(
         "--countries",
         nargs="+",
-        default=["Netherlands", "Romania", "Singapore", "Japan",
-                 "United States", "Canada"],
+        default=[
+            "Netherlands",
+            "Romania",
+            "Singapore",
+            "Japan",
+            "United States",
+            "Canada",
+        ],
     )
     parser.add_argument("--top_providers", type=int, default=12)
     parser.add_argument("--out", default=os.path.join(ROOT, "plots", "by_country"))

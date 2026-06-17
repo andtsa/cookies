@@ -84,7 +84,14 @@ def _prepend_www(url: str) -> str | None:
     if parts.port:
         netloc += f":{parts.port}"
     return urlunparse(
-        (parts.scheme, netloc, parts.path or "", parts.params, parts.query, parts.fragment)
+        (
+            parts.scheme,
+            netloc,
+            parts.path or "",
+            parts.params,
+            parts.query,
+            parts.fragment,
+        )
     )
 
 
@@ -185,7 +192,9 @@ async def _run_all(files, *, data_root, category, tracker_list, args) -> None:
         if not targets:
             print(f"[{country}/{browser}] no retry targets")
             continue
-        print(f"\n[{country}/{browser}] retrying {len(targets)} site(s) with www. prepended")
+        print(
+            f"\n[{country}/{browser}] retrying {len(targets)} site(s) with www. prepended"
+        )
         tally = await _crawl_group(
             targets,
             country=country,
@@ -214,27 +223,56 @@ async def _run_all(files, *, data_root, category, tracker_list, args) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[2])
-    p.add_argument("--data", default="cookies_data", help="crawl output root (default: cookies_data)")
-    p.add_argument("--country", default=None, help="limit to one country (default: all found)")
-    p.add_argument("--browsers", nargs="+", default=None, help="limit to these browsers (default: all found)")
-    p.add_argument("--category", default="popular", help="category to stamp on recovered sites (default: popular)")
+    p.add_argument(
+        "--data",
+        default="cookies_data",
+        help="crawl output root (default: cookies_data)",
+    )
+    p.add_argument(
+        "--country", default=None, help="limit to one country (default: all found)"
+    )
+    p.add_argument(
+        "--browsers",
+        nargs="+",
+        default=None,
+        help="limit to these browsers (default: all found)",
+    )
+    p.add_argument(
+        "--category",
+        default="popular",
+        help="category to stamp on recovered sites (default: popular)",
+    )
     p.add_argument(
         "--only-dns",
         action="store_true",
         help="retry only DNS-resolution failures (the ones www actually fixes); default retries every failed row",
     )
-    p.add_argument("--concurrency", "-c", type=int, default=4, help="concurrent sites per browser (default: 4)")
+    p.add_argument(
+        "--concurrency",
+        "-c",
+        type=int,
+        default=4,
+        help="concurrent sites per browser (default: 4)",
+    )
     p.add_argument("--timeout-ms", type=int, default=10000)
     p.add_argument("--wait-time-ms", type=int, default=5000)
-    p.add_argument("--tracker-lists", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument(
+        "--tracker-lists", action=argparse.BooleanOptionalAction, default=True
+    )
     p.add_argument("--tracker-cache-dir", default=".tracker_cache")
-    p.add_argument("--cookie-reads", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--dry-run", action="store_true", help="list targets and exit without crawling")
+    p.add_argument(
+        "--cookie-reads", action=argparse.BooleanOptionalAction, default=True
+    )
+    p.add_argument(
+        "--dry-run", action="store_true", help="list targets and exit without crawling"
+    )
     args = p.parse_args()
 
     files = list(_discover(args.data, args.country, args.browsers))
     if not files:
-        print(f"No {_FAILED_NAME} found under {args.data!r} (country={args.country}, browsers={args.browsers}).")
+        print(
+            f"No {_FAILED_NAME} found under {args.data!r} (country={args.country}, browsers={args.browsers})."
+        )
         return
 
     if args.dry_run:
@@ -247,7 +285,9 @@ def main() -> None:
                 print(f"    {rank:>7}  {url}")
             if len(targets) > 10:
                 print(f"    ... and {len(targets) - 10} more")
-        print(f"\nTotal retry targets: {total}  (category={args.category}, only_dns={args.only_dns})")
+        print(
+            f"\nTotal retry targets: {total}  (category={args.category}, only_dns={args.only_dns})"
+        )
         return
 
     tracker_list = None
@@ -260,7 +300,15 @@ def main() -> None:
 
     kill_orphaned_browsers()
     try:
-        asyncio.run(_run_all(files, data_root=args.data, category=args.category, tracker_list=tracker_list, args=args))
+        asyncio.run(
+            _run_all(
+                files,
+                data_root=args.data,
+                category=args.category,
+                tracker_list=tracker_list,
+                args=args,
+            )
+        )
     except KeyboardInterrupt:
         print("\nInterrupted by user")
 

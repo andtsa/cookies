@@ -85,9 +85,7 @@ def _parse_rank_cap(value: str) -> int | None:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     rank_cap = _parse_rank_cap(args.rank_cap)
-    print(
-        f"[annotate] rank cap: {'disabled' if rank_cap is None else f'{rank_cap:,}'}"
-    )
+    print(f"[annotate] rank cap: {'disabled' if rank_cap is None else f'{rank_cap:,}'}")
 
     ds = CookieDataset(
         args.data,

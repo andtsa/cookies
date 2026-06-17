@@ -10,7 +10,9 @@ import matplotlib.colors as mc
 import matplotlib.pyplot as plt
 
 # Make the repo-root ``analysis`` package importable from scripts/plot_scripts/.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "scripts", "plot_scripts"))
 from analysis import (  # noqa: E402,F401
     BUCKET_COLORS,
     BUCKETS,

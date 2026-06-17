@@ -28,53 +28,40 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "scripts", "plot_scripts"))
-
-from utils import (  # noqa: E402
-    apply_theme,
-    dataset,
-    filter_country_browser,
-    load_health_domains,
-    save_figure,
-    BG,
-    MID,
-    BUCKET_COLORS,
-)
+from scripts.plot_scripts.utils import *
 
 COMPANY_NAMES = {
-    "demdex.net":           "Adobe",
-    "hs-analytics.net":     "HubSpot",
-    "media.net":            "Media.net",
-    "sc-static.net":        "Snapchat",
-    "criteo.com":           "Criteo",
-    "tapad.com":            "Tapad",
-    "hsadspixel.net":       "HubSpot Ads",
-    "aim-tag.hcn.health":   "HCN Health",
-    "ct.pinterest.com":     "Pinterest",
-    "evergage.com":         "Salesforce",
-    "everesttech.net":      "Adobe Everest",
-    "mc.yandex.com":        "Yandex",
-    "mc.yandex.ru":         "Yandex",
-    "yandex.com":           "Yandex",
-    "yandex.ru":            "Yandex",
-    "bidr.io":              "Beeswax",
-    "m.stripe.com":         "Stripe",
-    "doubleclick.net":      "Google DoubleClick",
+    "demdex.net": "Adobe",
+    "hs-analytics.net": "HubSpot",
+    "media.net": "Media.net",
+    "sc-static.net": "Snapchat",
+    "criteo.com": "Criteo",
+    "tapad.com": "Tapad",
+    "hsadspixel.net": "HubSpot Ads",
+    "aim-tag.hcn.health": "HCN Health",
+    "ct.pinterest.com": "Pinterest",
+    "evergage.com": "Salesforce",
+    "everesttech.net": "Adobe Everest",
+    "mc.yandex.com": "Yandex",
+    "mc.yandex.ru": "Yandex",
+    "yandex.com": "Yandex",
+    "yandex.ru": "Yandex",
+    "bidr.io": "Beeswax",
+    "m.stripe.com": "Stripe",
+    "doubleclick.net": "Google DoubleClick",
     "google-analytics.com": "Google Analytics",
-    "facebook.com":         "Meta",
-    "adnxs.com":            "Microsoft Xandr",
-    "rubiconproject.com":   "Magnite",
-    "pubmatic.com":         "PubMatic",
-    "openx.net":            "OpenX",
-    "casalemedia.com":      "Index Exchange",
-    "rlcdn.com":            "LiveRamp",
-    "bluekai.com":          "Oracle BlueKai",
-    "krxd.net":             "Salesforce Krux",
-    "quantserve.com":       "Quantcast",
-    "nr-data.net":          "New Relic",
-    "px.mountain.com":      "MNTN",
+    "facebook.com": "Meta",
+    "adnxs.com": "Microsoft Xandr",
+    "rubiconproject.com": "Magnite",
+    "pubmatic.com": "PubMatic",
+    "openx.net": "OpenX",
+    "casalemedia.com": "Index Exchange",
+    "rlcdn.com": "LiveRamp",
+    "bluekai.com": "Oracle BlueKai",
+    "krxd.net": "Salesforce Krux",
+    "quantserve.com": "Quantcast",
+    "nr-data.net": "New Relic",
+    "px.mountain.com": "MNTN",
 }
 
 
@@ -202,21 +189,34 @@ def draw(interesting, country, browser, bg):
         MID,
     )
 
-    nx.draw_networkx_edges(
-        G, pos, width=edge_widths, edge_color=MID, alpha=0.30, ax=ax
+    nx.draw_networkx_edges(G, pos, width=edge_widths, edge_color=MID, alpha=0.30, ax=ax)
+    nx.draw_networkx_nodes(
+        G,
+        pos,
+        nodelist=[health_node],
+        node_color=health_color,
+        node_size=3200,
+        alpha=0.90,
+        ax=ax,
     )
     nx.draw_networkx_nodes(
-        G, pos, nodelist=[health_node], node_color=health_color,
-        node_size=3200, alpha=0.90, ax=ax,
-    )
-    nx.draw_networkx_nodes(
-        G, pos, nodelist=[nonhealth_node], node_color=nonhealth_color,
-        node_size=3200, alpha=0.90, ax=ax,
+        G,
+        pos,
+        nodelist=[nonhealth_node],
+        node_color=nonhealth_color,
+        node_size=3200,
+        alpha=0.90,
+        ax=ax,
     )
     tracker_sizes = [400 + np.sqrt(h + n) * 80 for _, h, n, _ in interesting]
     nx.draw_networkx_nodes(
-        G, pos, nodelist=[t[0] for t in interesting], node_color=tracker_color,
-        node_size=tracker_sizes, alpha=0.85, ax=ax,
+        G,
+        pos,
+        nodelist=[t[0] for t in interesting],
+        node_color=tracker_color,
+        node_size=tracker_sizes,
+        alpha=0.85,
+        ax=ax,
     )
 
     labels = {health_node: "Health Sites", nonhealth_node: "Non-Health Sites"}
@@ -265,18 +265,23 @@ def main():
         description="Bridge tracker graph: health vs non-health sites"
     )
     parser.add_argument("--data", default=os.path.join(ROOT, "cookies_data"))
-    parser.add_argument("--health", default=os.path.join(ROOT, "health_websites_1K.csv"))
     parser.add_argument(
-        "--country", default="Netherlands",
+        "--health", default=os.path.join(ROOT, "health_websites_1K.csv")
+    )
+    parser.add_argument(
+        "--country",
+        default="Netherlands",
         help="Country to filter on, or 'all' (default: Netherlands)",
     )
     parser.add_argument(
-        "--browser", default="chromium",
+        "--browser",
+        default="chromium",
         help="Browser to filter on, or 'all' (default: chromium)",
     )
     parser.add_argument("--top_n", type=int, default=15)
     parser.add_argument(
-        "--out", default=os.path.join(ROOT, "plots", "tracker_bridge"),
+        "--out",
+        default=os.path.join(ROOT, "plots", "tracker_bridge"),
         help="Output directory for saved figures",
     )
     args = parser.parse_args()

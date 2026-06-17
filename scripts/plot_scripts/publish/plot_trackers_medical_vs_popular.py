@@ -21,21 +21,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "scripts", "plot_scripts"))
-
-from utils import (
-    apply_theme,
-    save_figure,
-    dataset,
-    ACCENT,
-    ACCENT2,
-    DARK,
-    LIGHT,
-    MID,
-    BG,
-)
+from scripts.plot_scripts.utils import *
 
 
 def load_health_domains(csv_path: str) -> set[str]:
@@ -127,8 +113,15 @@ def plot_session_split(h_t, n_t, subtitle: str, out_dir: str) -> None:
     plt.close(fig)
 
 
-def plot_tracker_count(h_cook, n_cook, h_total, n_total, subtitle: str, out_dir: str,
-                       thresholds=(1, 3, 5, 10)) -> None:
+def plot_tracker_count(
+    h_cook,
+    n_cook,
+    h_total,
+    n_total,
+    subtitle: str,
+    out_dir: str,
+    thresholds=(1, 3, 5, 10),
+) -> None:
     """B: % of sites with at least N tracker cookies."""
 
     def frac_above(cookies, total, thresh):
@@ -149,16 +142,21 @@ def plot_tracker_count(h_cook, n_cook, h_total, n_total, subtitle: str, out_dir:
     ax.set_title("Tracker Cookies per Site", fontweight="bold", color=DARK)
     ax.spines[["top", "right"]].set_visible(False)
     for xi, (nv, hv) in enumerate(zip(n_v, h_v)):
-        ax.text(xi - w / 2, nv + 0.4, f"{nv:.1f}%", ha="center", fontsize=7.5, color=DARK)
-        ax.text(xi + w / 2, hv + 0.4, f"{hv:.1f}%", ha="center", fontsize=7.5, color=DARK)
+        ax.text(
+            xi - w / 2, nv + 0.4, f"{nv:.1f}%", ha="center", fontsize=7.5, color=DARK
+        )
+        ax.text(
+            xi + w / 2, hv + 0.4, f"{hv:.1f}%", ha="center", fontsize=7.5, color=DARK
+        )
     fig.text(0.5, 0.01, subtitle, ha="center", fontsize=9, color=MID)
 
     save_panel(fig, out_dir, "panel_B_tracker_cookies_per_site")
     plt.close(fig)
 
 
-def plot_providers_diff(h_t, n_t, h_total, n_total, top_n: int, subtitle: str,
-                        out_dir: str) -> None:
+def plot_providers_diff(
+    h_t, n_t, h_total, n_total, top_n: int, subtitle: str, out_dir: str
+) -> None:
     """C: Diverging bar — providers where health and non-health differ most."""
     h_prev = h_t.groupby("_provider")["domain"].nunique() / h_total * 100
     n_prev = n_t.groupby("_provider")["domain"].nunique() / n_total * 100
@@ -178,7 +176,10 @@ def plot_providers_diff(h_t, n_t, h_total, n_total, top_n: int, subtitle: str,
     ax.set_yticks(y)
     ax.set_yticklabels(providers, fontsize=8.5)
     ax.axvline(0, color=DARK, linewidth=0.8)
-    ax.set_xlabel("Difference in tracker prevalence (% sites, health minus non-health)", labelpad=8)
+    ax.set_xlabel(
+        "Difference in tracker prevalence (% sites, health minus non-health)",
+        labelpad=8,
+    )
     ax.legend(
         handles=[
             mpatches.Patch(color=ACCENT, label="More common on health sites"),
@@ -187,7 +188,9 @@ def plot_providers_diff(h_t, n_t, h_total, n_total, top_n: int, subtitle: str,
         fontsize=8,
         loc="lower right",
     )
-    ax.set_title("Tracker Providers in Health vs Non-Health Sites", fontweight="bold", color=DARK)
+    ax.set_title(
+        "Tracker Providers in Health vs Non-Health Sites", fontweight="bold", color=DARK
+    )
     ax.spines[["top", "right"]].set_visible(False)
     fig.subplots_adjust(bottom=0.12)
 
@@ -225,15 +228,27 @@ def plot_lifetime_split(h_t, n_t, subtitle: str, out_dir: str) -> None:
     ax_h.set_xticklabels([])
     ax_h.set_title("Persistent Tracker Cookie Lifetime", fontweight="bold", color=DARK)
     ax_h.text(
-        0.5, 0.97, "(Health Sites)",
-        transform=ax_h.transAxes, ha="center", va="top",
-        fontsize=10, color=DARK, fontweight="bold",
+        0.5,
+        0.97,
+        "(Health Sites)",
+        transform=ax_h.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10,
+        color=DARK,
+        fontweight="bold",
         bbox=dict(facecolor=BG, edgecolor="none", pad=2),
     )
     ax_n.text(
-        0.5, 0.97, "(Non-health Sites)",
-        transform=ax_n.transAxes, ha="center", va="top",
-        fontsize=10, color=DARK, fontweight="bold",
+        0.5,
+        0.97,
+        "(Non-health Sites)",
+        transform=ax_n.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10,
+        color=DARK,
+        fontweight="bold",
     )
     fig.text(0.5, 0.01, subtitle, ha="center", fontsize=9, color=MID)
 

@@ -81,7 +81,6 @@ def main():
     ds = dataset(args.data)
     cookies = ds.classified_cookies
 
-
     # Filter to country/browser/health sites/tracker cookies in one pass.
     mask = (
         (cookies["country"] == args.country)

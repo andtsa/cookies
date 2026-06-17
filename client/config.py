@@ -38,25 +38,19 @@ _BROWSER_ENV_KEY: dict[Browser, str] = {
 
 _BROWSER_USER_AGENTS: dict[Browser, str] = {
     Browser.CHROMIUM: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-                      
+    "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
     Browser.CHROME: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-                    
+    "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
     Browser.EDGE: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0",
-                  
+    "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0",
     Browser.BRAVE: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                   "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-                   
+    "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
     Browser.FIREFOX: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) "
-                     "Gecko/20100101 Firefox/133.0",
-                     
+    "Gecko/20100101 Firefox/133.0",
     Browser.WEBKIT: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
-                    "(KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-                    
+    "(KHTML, like Gecko) Version/17.0 Safari/605.1.15",
     Browser.DUCKDUCKGO: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
 }
 
 
