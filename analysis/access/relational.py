@@ -20,6 +20,24 @@ def _relational_key(self) -> str | None:
     return getter() if getter is not None else None
 
 
+def _site_crawl_country_browser(site) -> tuple[str, str]:
+    """Resolve (country, browser) for a raw site using crawl_context when present.
+
+    The directory layout is ``{country}/{browser}/{hex}/{slug}`` in the ideal
+    case, but the actual crawls stored in this dataset use a different layout
+    where ``site.country``/``site.browser`` come from the *path* components and
+    may not match the semantic country/browser (which are stored in the
+    ``crawl_context`` JSON key). ``_build_cookies`` already prefers the JSON
+    values — this helper applies the same logic so relational evidence is keyed
+    consistently with the cookies frame, preventing lookup mismatches in the
+    classifier.
+    """
+    ctx = site.data.get("crawl_context") or {}
+    country = ctx.get("country") or site.country
+    browser = ctx.get("browser") or site.browser
+    return country, browser
+
+
 class RelationalAccess:
     # relational analyses
     def shared(
@@ -94,10 +112,11 @@ class RelationalAccess:
                 path_detector=detector,
             )
             if result["confirmed"] or result["candidates"]:
+                country, browser = _site_crawl_country_browser(site)
                 events.append(
                     {
-                        "country": site.country,
-                        "browser": site.browser,
+                        "country": country,
+                        "browser": browser,
                         "domain": site.domain,
                         **result,
                     }
@@ -176,14 +195,15 @@ class RelationalAccess:
             def _meta(url: str) -> tuple[str, bool]:
                 return req_meta.get(url, ("other", False))
 
+            site_country, site_browser = _site_crawl_country_browser(site)
             for row in result["confirmed"]:
                 url = row.get("request_url", "")
                 carrier, tracker = _meta(url)
                 raw_value = syncing.param_value_in(url, row.get("param", ""))
                 rows.append(
                     {
-                        "country": site.country,
-                        "browser": site.browser,
+                        "country": site_country,
+                        "browser": site_browser,
                         "from_domain": site_domain,
                         "to_domain": row.get("to_domain", ""),
                         "carrier": carrier,
@@ -202,8 +222,8 @@ class RelationalAccess:
                 carrier, tracker = _meta(url)
                 rows.append(
                     {
-                        "country": site.country,
-                        "browser": site.browser,
+                        "country": site_country,
+                        "browser": site_browser,
                         "from_domain": site_domain,
                         "to_domain": row.get("to_domain", ""),
                         "carrier": carrier,
@@ -239,7 +259,7 @@ class RelationalAccess:
             ja = site.js_activity
             if not ja.get("reads"):
                 continue
-            sessions_by_crawl[(site.country, site.browser)].append(
+            sessions_by_crawl[_site_crawl_country_browser(site)].append(
                 {
                     "visited_domain": registered_domain(site.target_url) or site.domain,
                     "reads": ja.get("reads", []),
@@ -297,9 +317,10 @@ class RelationalAccess:
                 continue
             visited = registered_domain(site.target_url) or site.domain
             session = {"visited_domain": visited, "reads": ja.get("reads", [])}
+            site_country, site_browser = _site_crawl_country_browser(site)
             for rec in reads.third_party_reads([session]):
-                rec["country"] = site.country
-                rec["browser"] = site.browser
+                rec["country"] = site_country
+                rec["browser"] = site_browser
                 result.append(rec)
 
         relational_cache.save(getattr(self, "cache_dir", None), rkey, "tpreads", result)
