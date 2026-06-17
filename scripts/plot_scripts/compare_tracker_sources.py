@@ -104,7 +104,10 @@ def plot_pct_sites_with_tracker(data_dir: str, out_dir: str) -> None:
     df = load_site_tracker_summary(data_dir)
 
     if df.empty:
-        print("No is_tracker data found. ")
+        print(
+            "No is_tracker data found. "
+            "Re-collect with --tracker-lists to annotate cookies."
+        )
         return
 
     n_total = len(df)

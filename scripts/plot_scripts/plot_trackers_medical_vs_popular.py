@@ -2,6 +2,8 @@
 Health vs. non-health website tracker comparison (NL crawl, Chromium).
 File location: scripts/plot_scripts/plot_trackers_medical_vs_popular.py
 
+Each of the four panels is saved as its own PNG and PDF file.
+
 Usage:
   python plot_trackers_medical_vs_popular.py               # full dataset
   python plot_trackers_medical_vs_popular.py --sample 2000 # random 2000 non-health sites
@@ -16,7 +18,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
 import numpy as np
 
@@ -56,10 +57,18 @@ def with_provider(t):
     return t[t["_provider"].str.contains(r"\.", regex=True, na=False)]
 
 
+def save_panel(fig, out_dir: str, stem: str) -> None:
+    """Save a figure as both PNG and PDF."""
+    for ext in ("png", "pdf"):
+        path = os.path.join(out_dir, f"{stem}.{ext}")
+        fig.savefig(path, bbox_inches="tight", dpi=150 if ext == "png" else None)
+        print(f"Saved {path}")
+
+
 # ── panels ────────────────────────────────────────────────────────────────────
 
 
-def panel_session_split(ax, h_t, n_t):
+def plot_session_split(h_t, n_t, subtitle: str, out_dir: str) -> None:
     """A: Stacked bar — session / short-lived / persistent tracker cookies."""
 
     def split(t):
@@ -77,6 +86,7 @@ def panel_session_split(ax, h_t, n_t):
     sh_v = [n_short, h_short]
     p_v = [n_pers, h_pers]
 
+    fig, ax = plt.subplots(figsize=(6, 5))
     ax.bar(x, se_v, w, color=LIGHT, label="Session (no expiry date)")
     ax.bar(x, sh_v, w, bottom=se_v, color=MID, label="Short-lived persistent (≤ 1 day)")
     ax.bar(
@@ -109,13 +119,16 @@ def panel_session_split(ax, h_t, n_t):
     ax.set_ylabel("% of Tracker Cookies")
     ax.set_ylim(0, 110)
     ax.legend(fontsize=8.5, loc="upper right")
-    ax.set_title(
-        "A   Tracker Cookie Lifetime Categories", fontweight="bold", color=DARK
-    )
+    ax.set_title("Tracker Cookie Lifetime Categories", fontweight="bold", color=DARK)
     ax.spines[["top", "right"]].set_visible(False)
+    fig.text(0.5, 0.01, subtitle, ha="center", fontsize=9, color=MID)
+
+    save_panel(fig, out_dir, "panel_A_cookie_lifetime_categories")
+    plt.close(fig)
 
 
-def panel_tracker_count(ax, h_cook, n_cook, h_total, n_total, thresholds=(1, 3, 5, 10)):
+def plot_tracker_count(h_cook, n_cook, h_total, n_total, subtitle: str, out_dir: str,
+                       thresholds=(1, 3, 5, 10)) -> None:
     """B: % of sites with at least N tracker cookies."""
 
     def frac_above(cookies, total, thresh):
@@ -126,24 +139,26 @@ def panel_tracker_count(ax, h_cook, n_cook, h_total, n_total, thresholds=(1, 3, 
     h_v = [frac_above(h_cook, h_total, t) for t in thresholds]
     n_v = [frac_above(n_cook, n_total, t) for t in thresholds]
 
+    fig, ax = plt.subplots(figsize=(6, 5))
     ax.bar(x - w / 2, n_v, w, color=ACCENT2, label="Non-health")
     ax.bar(x + w / 2, h_v, w, color=ACCENT, label="Health")
     ax.set_xticks(x)
     ax.set_xticklabels([f"≥{t} trackers" for t in thresholds])
     ax.set_ylabel("% of Sites")
     ax.legend(fontsize=9)
-    ax.set_title("B   Tracker Cookies per Site", fontweight="bold", color=DARK)
+    ax.set_title("Tracker Cookies per Site", fontweight="bold", color=DARK)
     ax.spines[["top", "right"]].set_visible(False)
     for xi, (nv, hv) in enumerate(zip(n_v, h_v)):
-        ax.text(
-            xi - w / 2, nv + 0.4, f"{nv:.1f}%", ha="center", fontsize=7.5, color=DARK
-        )
-        ax.text(
-            xi + w / 2, hv + 0.4, f"{hv:.1f}%", ha="center", fontsize=7.5, color=DARK
-        )
+        ax.text(xi - w / 2, nv + 0.4, f"{nv:.1f}%", ha="center", fontsize=7.5, color=DARK)
+        ax.text(xi + w / 2, hv + 0.4, f"{hv:.1f}%", ha="center", fontsize=7.5, color=DARK)
+    fig.text(0.5, 0.01, subtitle, ha="center", fontsize=9, color=MID)
+
+    save_panel(fig, out_dir, "panel_B_tracker_cookies_per_site")
+    plt.close(fig)
 
 
-def panel_providers_diff(ax, h_t, n_t, h_total, n_total, top_n):
+def plot_providers_diff(h_t, n_t, h_total, n_total, top_n: int, subtitle: str,
+                        out_dir: str) -> None:
     """C: Diverging bar — providers where health and non-health differ most."""
     h_prev = h_t.groupby("_provider")["domain"].nunique() / h_total * 100
     n_prev = n_t.groupby("_provider")["domain"].nunique() / n_total * 100
@@ -157,34 +172,36 @@ def panel_providers_diff(ax, h_t, n_t, h_total, n_total, top_n):
     values = [d[1] for d in top]
     colors = [ACCENT if v > 0 else ACCENT2 for v in values]
 
+    fig, ax = plt.subplots(figsize=(8, 6))
     y = np.arange(len(providers))
     ax.barh(y, values, color=colors, height=0.65)
     ax.set_yticks(y)
     ax.set_yticklabels(providers, fontsize=8.5)
     ax.axvline(0, color=DARK, linewidth=0.8)
-    ax.set_xlabel(
-        "Difference in tracker provider prevalence between health and non-health sites\n"
-        "(positive = more common on health sites, negative = more common on non-health sites)"
-    )
+    ax.set_xlabel("Difference in tracker prevalence (% sites, health minus non-health)", labelpad=8)
     ax.legend(
         handles=[
-            mpatches.Patch(color=ACCENT, label="More prevalent on health sites"),
-            mpatches.Patch(color=ACCENT2, label="More prevalent on non-health sites"),
+            mpatches.Patch(color=ACCENT, label="More common on health sites"),
+            mpatches.Patch(color=ACCENT2, label="More common on non-health sites"),
         ],
         fontsize=8,
         loc="lower right",
     )
-    ax.set_title(
-        "C   Tracker Providers in Health vs Non-Health Sites",
-        fontweight="bold",
-        color=DARK,
-    )
+    ax.set_title("Tracker Providers in Health vs Non-Health Sites", fontweight="bold", color=DARK)
     ax.spines[["top", "right"]].set_visible(False)
+    fig.subplots_adjust(bottom=0.12)
+
+    save_panel(fig, out_dir, "panel_C_tracker_providers_diff")
+    plt.close(fig)
 
 
-def panel_lifetime_split(ax_h, ax_n, h_t, n_t):
-    """D: Two stacked histograms of persistent cookie lifetime."""
+def plot_lifetime_split(h_t, n_t, subtitle: str, out_dir: str) -> None:
+    """D: Two stacked histograms of persistent cookie lifetime (health on top, non-health below)."""
     bins = np.linspace(0, 400, 41)
+
+    fig, (ax_h, ax_n) = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
+    fig.subplots_adjust(hspace=0.1)
+
     for ax, t, label, color in [
         (ax_h, h_t, "Health Sites", ACCENT),
         (ax_n, n_t, "Non-health Sites", ACCENT2),
@@ -206,32 +223,22 @@ def panel_lifetime_split(ax_h, ax_n, h_t, n_t):
 
     ax_n.set_xlabel("Persistent Cookie Lifetime (days, capped at 400)")
     ax_h.set_xticklabels([])
-    ax_h.set_title(
-        "D   Persistent Tracker Cookie Lifetime", fontweight="bold", color=DARK
-    )
+    ax_h.set_title("Persistent Tracker Cookie Lifetime", fontweight="bold", color=DARK)
     ax_h.text(
-        0.5,
-        0.97,
-        "(Health Sites)",
-        transform=ax_h.transAxes,
-        ha="center",
-        va="top",
-        fontsize=10,
-        color=DARK,
-        fontweight="bold",
+        0.5, 0.97, "(Health Sites)",
+        transform=ax_h.transAxes, ha="center", va="top",
+        fontsize=10, color=DARK, fontweight="bold",
         bbox=dict(facecolor=BG, edgecolor="none", pad=2),
     )
     ax_n.text(
-        0.5,
-        0.97,
-        "(Non-health Sites)",
-        transform=ax_n.transAxes,
-        ha="center",
-        va="top",
-        fontsize=10,
-        color=DARK,
-        fontweight="bold",
+        0.5, 0.97, "(Non-health Sites)",
+        transform=ax_n.transAxes, ha="center", va="top",
+        fontsize=10, color=DARK, fontweight="bold",
     )
+    fig.text(0.5, 0.01, subtitle, ha="center", fontsize=9, color=MID)
+
+    save_panel(fig, out_dir, "panel_D_persistent_lifetime")
+    plt.close(fig)
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
@@ -262,9 +269,8 @@ def main():
     print(f"Loaded {len(health_domains):,} health domains")
 
     ds = dataset(args.data)
-    cookies = ds.classified_cookies
+    cookies = ds.cookies
 
-    # Split into health / non-health in one pass over the cached frame.
     base = cookies[
         (cookies["country"] == args.country) & (cookies["browser"] == args.browser)
     ]
@@ -293,44 +299,19 @@ def main():
     sample_note = (
         f", random sample of {n_total:,} non-health sites" if args.sample else ""
     )
+    subtitle = (
+        f"{h_total:,} health sites vs {n_total:,} non-health sites — "
+        f"{args.browser} from {args.country}{sample_note}"
+    )
 
     apply_theme()
 
-    fig = plt.figure(figsize=(16, 12))
-    gs_outer = gridspec.GridSpec(2, 2, figure=fig, hspace=0.22, wspace=0.22)
-    ax_a = fig.add_subplot(gs_outer[0, 0])
-    ax_b = fig.add_subplot(gs_outer[0, 1])
-    ax_c = fig.add_subplot(gs_outer[1, 0])
-    gs_d = gridspec.GridSpecFromSubplotSpec(
-        2, 1, subplot_spec=gs_outer[1, 1], hspace=0.1
-    )
-    ax_dh = fig.add_subplot(gs_d[0])
-    ax_dn = fig.add_subplot(gs_d[1])
+    plot_session_split(h_t, n_t, subtitle, args.out)
+    plot_tracker_count(h_cook, n_cook, h_total, n_total, subtitle, args.out)
+    plot_providers_diff(h_t, n_t, h_total, n_total, args.top_n, subtitle, args.out)
+    plot_lifetime_split(h_t, n_t, subtitle, args.out)
 
-    panel_session_split(ax_a, h_t, n_t)
-    panel_tracker_count(ax_b, h_cook, n_cook, h_total, n_total)
-    panel_providers_diff(ax_c, h_t, n_t, h_total, n_total, args.top_n)
-    panel_lifetime_split(ax_dh, ax_dn, h_t, n_t)
-
-    fig.suptitle(
-        "Tracker Activity on Health Websites vs Non-Health Websites",
-        fontsize=16,
-        fontweight="bold",
-        color=DARK,
-        y=0.96,
-    )
-    fig.text(
-        0.5,
-        0.93,
-        f"{h_total:,} health sites vs {n_total:,} non-health sites — "
-        f"{args.browser} from {args.country}{sample_note}",
-        ha="center",
-        fontsize=13,
-        color=MID,
-    )
-
-    save_figure(args.out, "health_vs_nonhealth_trackers.png")
-    save_figure(args.out, "health_vs_nonhealth_trackers.pdf")
+    print(f"\nAll 8 files (4 × PNG + PDF) saved to: {args.out}")
 
 
 if __name__ == "__main__":
