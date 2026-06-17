@@ -40,14 +40,13 @@ from utils import (
 
 BROWSER = "chromium"
 
-# Country display labels (ISO → readable)
+# Country display labels (dataset code → full name, for plot labels)
 COUNTRY_LABELS = {
-    "Netherlands": "NL",
-    "Romania": "RO",
-    "Singapore": "SG",
-    "Japan": "JP",
-    "United States": "US",
-    "Canada": "CA",
+    "Netherlands": "Netherlands",
+    "CA": "Canada",
+    "SG": "Singapore",
+    "US": "United States",
+    "JP": "Japan",
 }
 
 
@@ -310,7 +309,7 @@ def main():
 
     print("Loading dataset...")
     ds = dataset(args.data)
-    cookies = ds.cookies
+    cookies = ds.classified_cookies
 
     print(f"Building per-country metrics for: {', '.join(args.countries)}")
     per_country = build_per_country(cookies, args.countries)

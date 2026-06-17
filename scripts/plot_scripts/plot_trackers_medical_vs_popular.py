@@ -269,7 +269,7 @@ def main():
     print(f"Loaded {len(health_domains):,} health domains")
 
     ds = dataset(args.data)
-    cookies = ds.cookies
+    cookies = ds.classified_cookies
 
     base = cookies[
         (cookies["country"] == args.country) & (cookies["browser"] == args.browser)
