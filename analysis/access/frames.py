@@ -42,6 +42,7 @@ class FrameAccess:
                 self.high_entropy_bits,
                 self.cluster_max_edit_distance,
                 sorted(self.site_lists.items()),
+                self.rank_cap,
             )
         )
 
