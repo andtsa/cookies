@@ -1,3 +1,5 @@
+"""Core data types: ``SiteRaw`` wraps one crawled-site JSON plus its path context."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

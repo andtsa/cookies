@@ -23,7 +23,22 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 
-from scripts.plot_scripts.utils import *
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from utils import (
+    apply_theme,
+    dataset,
+    save_figure,
+    BG,
+    DARK,
+    LIGHT,
+    ACCENT,
+    ACCENT2,
+    MID,
+)
+
+ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 BROWSER = "chromium"
 
@@ -320,14 +335,7 @@ def main():
     parser.add_argument(
         "--countries",
         nargs="+",
-        default=[
-            "Netherlands",
-            "Romania",
-            "Singapore",
-            "Japan",
-            "United States",
-            "Canada",
-        ],
+        default=["Netherlands", "US", "SG", "JP", "CA"],
     )
     parser.add_argument("--top_providers", type=int, default=12)
     parser.add_argument("--out", default=os.path.join(ROOT, "plots", "by_country"))

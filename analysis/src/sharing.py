@@ -1,3 +1,5 @@
+"""Build the shared-cookie index: cookies set identically across multiple sites."""
+
 from __future__ import annotations
 
 from collections import defaultdict

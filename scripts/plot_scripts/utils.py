@@ -20,7 +20,7 @@ from analysis import (  # noqa: E402,F401
     lifetime_bucket,
 )
 
-BG = "#fef2e6"
+BG = "#ffffff"  # "#fef2e6"
 COLORS = [
     "#ba4f19",
     "#ecb157",

@@ -1,3 +1,5 @@
+"""Detect cookie syncing: cookie-value identifiers embedded in outgoing request URLs."""
+
 from __future__ import annotations
 
 import base64

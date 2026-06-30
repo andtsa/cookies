@@ -1,3 +1,10 @@
+"""Run the EasyPrivacy filter-list matcher over a site's recorded request URLs.
+
+Shared by both the sequential (single-process) path in ``RawAccess`` and the
+parallel prefetch workers in ``direct.py``. Logic lives here so both paths
+are byte-for-byte identical and cannot arbitrarily diverge.
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

@@ -42,7 +42,22 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 
-from scripts.plot_scripts.utils import *
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from utils import (
+    apply_theme,
+    dataset,
+    save_figure,
+    BG,
+    DARK,
+    LIGHT,
+    ACCENT,
+    ACCENT2,
+    MID,
+)
+
+ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 try:
     import tldextract  # the repo already depends on this

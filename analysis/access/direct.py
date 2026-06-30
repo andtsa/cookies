@@ -89,8 +89,12 @@ def _ep_prefetch_chunk(
 
 class RawAccess:
     # ------------------------------------------------------------------ raw
-    def site_files(self) -> list[Path]:
+    @cached_property
+    def _site_files(self) -> list[Path]:
         return site_paths(self.data_dir)
+
+    def site_files(self) -> list[Path]:
+        return self._site_files
 
     @cached_property
     def _raw_sites(self) -> list[SiteRaw]:

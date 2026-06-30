@@ -1,3 +1,5 @@
+"""Load site JSON files from disk and decode ``(country, browser, domain)`` from their paths."""
+
 from __future__ import annotations
 
 import csv
