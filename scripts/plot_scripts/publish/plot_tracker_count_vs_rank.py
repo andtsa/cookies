@@ -31,19 +31,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(__file__))
-from utils import (
-    apply_theme,
-    dataset,
-    save_figure,
-    BG,
-    DARK,
-    MID,
-    LIGHT,
-    ACCENT,
-    ACCENT2,
-    COLORS,
-)
+from scripts.plot_scripts.utils import *
 
 # Must match the tiers defined in analysis/access/frames.py so labels are consistent.
 RANK_TIERS = [

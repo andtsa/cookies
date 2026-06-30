@@ -1,3 +1,5 @@
+"""Load site JSON files from disk and decode ``(country, browser, domain)`` from their paths."""
+
 from __future__ import annotations
 
 import csv
@@ -47,6 +49,15 @@ def load_site(path: Path, data_dir: str | os.PathLike) -> SiteRaw | None:
     except (orjson.JSONDecodeError, OSError):
         return None
     country, browser, slug = path_context(path, data_dir)
+    # Prefer the country/browser recorded inside the crawl (matching what the
+    # frame builders use) over the path-decoded values: ``path_context`` only
+    # decodes correctly when ``data_dir`` sits above the ``{country}/{browser}``
+    # levels, so a sharded ``CookieDataset`` (data_dir at/below those levels)
+    # would otherwise get ``"unknown"`` and pool distinct crawls together in the
+    # raw-site relational analyses (e.g. ``cross_domain_reads``).
+    ctx = data.get("crawl_context") or {}
+    country = ctx.get("country") or country
+    browser = ctx.get("browser") or browser
     return SiteRaw(path=path, country=country, browser=browser, domain=slug, data=data)
 
 

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .progress import track
+from .progress import bar, track
 
 # Bump when the enriched column schema changes so old caches are ignored.
 SCHEMA_VERSION = (
@@ -29,18 +29,18 @@ def dir_fingerprint(paths: list[Path], config_repr: str) -> str:
     """Stable hex digest of the dataset state + config."""
     h = hashlib.blake2b(digest_size=16)
     h.update(f"v{SCHEMA_VERSION}\0{config_repr}\0".encode())
-    for p in track(
-        sorted(paths),
+    for p_str in track(
+        sorted(str(p) for p in paths),
         desc="fingerprint",
         total=len(paths),
         unit=" files",
         leave=False,
     ):
         try:
-            st = p.stat()
-            h.update(f"{p}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
+            st = os.stat(p_str)
+            h.update(f"{p_str}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
         except OSError:
-            h.update(f"{p}\0MISSING\n".encode())
+            h.update(f"{p_str}\0MISSING\n".encode())
     return h.hexdigest()
 
 
@@ -68,12 +68,20 @@ def load(cache_dir: str, key: str) -> tuple[pd.DataFrame, pd.DataFrame] | None:
         return None
     try:
         if p["cookies"].exists() and p["sites"].exists():
-            return pd.read_parquet(p["cookies"]), pd.read_parquet(p["sites"])
+            with bar("load cache", total=2, unit=" frames", leave=False) as b:
+                cookies = pd.read_parquet(p["cookies"])
+                b.update()
+                sites = pd.read_parquet(p["sites"])
+                b.update()
+            return cookies, sites
         if p["cookies_pkl"].exists() and p["sites_pkl"].exists():
-            with open(p["cookies_pkl"], "rb") as fh:
-                cookies = pickle.load(fh)
-            with open(p["sites_pkl"], "rb") as fh:
-                sites = pickle.load(fh)
+            with bar("load cache", total=2, unit=" frames", leave=False) as b:
+                with open(p["cookies_pkl"], "rb") as fh:
+                    cookies = pickle.load(fh)
+                b.update()
+                with open(p["sites_pkl"], "rb") as fh:
+                    sites = pickle.load(fh)
+                b.update()
             return cookies, sites
     except Exception:
         return None

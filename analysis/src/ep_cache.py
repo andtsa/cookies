@@ -1,3 +1,10 @@
+"""Disk-backed memo for EasyPrivacy match verdicts.
+
+Uses a snapshot-plus-append-log scheme: incremental checkpoints write only new
+verdicts (flat cost), and a consolidation step at the end folds the log back into
+the snapshot so subsequent runs start warm via a single O(N) load.
+"""
+
 from __future__ import annotations
 
 import hashlib

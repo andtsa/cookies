@@ -17,6 +17,7 @@ class CookieDataset(RawAccess, FrameAccess, AggregateAccess, RelationalAccess):
         tracker_lists: set[Detections] | None = None,
         tracker_cache_dir: str = ".tracker_cache",
         site_lists: dict[str, str] | None = None,
+        rank_cap: int | None = 100_000,
         recompute_trackers: bool = False,
         high_entropy_bits: float = HIGH_ENTROPY_BITS,
         sync_min_bits: float = HIGH_ENTROPY_BITS,
@@ -40,6 +41,13 @@ class CookieDataset(RawAccess, FrameAccess, AggregateAccess, RelationalAccess):
                 "popular": "list_websites_1M.csv",
             }
         )
+        # Cap the dataset to sites within the first ``rank_cap`` entries of the
+        # ranking list (``crawl_context.rank`` <= rank_cap). The crawl ran the
+        # top 100k *+N* sites; this drops that ">100k" overrun so analysis
+        # describes a well-defined top-M sample. ``None`` disables capping.
+        # Applied once in RawAccess._raw_sites (the single iteration chokepoint)
+        # and folded into the cache fingerprint via FrameAccess._config_repr.
+        self.rank_cap = rank_cap
         self.recompute_trackers = recompute_trackers
         self.high_entropy_bits = high_entropy_bits
         self.sync_min_bits = sync_min_bits

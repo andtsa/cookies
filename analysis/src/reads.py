@@ -1,3 +1,5 @@
+"""Extract third-party cookie reads from recorded JavaScript stack traces."""
+
 from __future__ import annotations
 
 import re

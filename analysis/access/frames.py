@@ -42,13 +42,20 @@ class FrameAccess:
                 self.high_entropy_bits,
                 self.cluster_max_edit_distance,
                 sorted(self.site_lists.items()),
+                self.rank_cap,
             )
         )
 
     @cached_property
+    def _base_cache_key(self) -> str | None:
+        if not self.cache_dir:
+            return None
+        return cache.dir_fingerprint(self.site_files(), self._config_repr)
+
+    @cached_property
     def cookies(self) -> pd.DataFrame:
         if self.cache_dir and not self.rebuild:
-            key = cache.dir_fingerprint(self.site_files(), self._config_repr)
+            key = self._base_cache_key
             cached = cache.load(self.cache_dir, key)
             if cached is not None:
                 self._sites_frame = cached[1]
@@ -70,10 +77,9 @@ class FrameAccess:
         self._persist_ep_match_cache()
 
         if self.cache_dir:
-            key = cache.dir_fingerprint(self.site_files(), self._config_repr)
             cache.save(
                 self.cache_dir,
-                key,
+                self._base_cache_key,
                 cookies_df,
                 sites_df,
                 meta={
@@ -177,9 +183,8 @@ class FrameAccess:
         the label-affecting config (``sync_min_bits``/``high_entropy_bits``)."""
         if not self.cache_dir:
             return None
-        base_key = cache.dir_fingerprint(self.site_files(), self._config_repr)
         extra = repr((self.sync_min_bits, self.high_entropy_bits))
-        return classified_cache.classified_fingerprint(base_key, extra)
+        return classified_cache.classified_fingerprint(self._base_cache_key, extra)
 
     def _hydrate_relational(self, artifacts: dict) -> None:
         """Seed ``self._cache`` with loaded relational artifacts so later direct

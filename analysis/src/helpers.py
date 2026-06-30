@@ -1,3 +1,5 @@
+"""Shared constants and domain-extraction utilities used across the analysis package."""
+
 from __future__ import annotations
 
 import hashlib

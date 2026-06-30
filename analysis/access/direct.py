@@ -19,6 +19,19 @@ from ..src.records import SiteRaw
 _worker_matcher = None
 
 
+def _site_rank(site: SiteRaw) -> int | None:
+    """Authoritative rank for a site, read from ``crawl_context.rank``.
+
+    The crawler embeds the site's line number in the ranking list here (verified
+    to match ``list_websites_1M.csv`` exactly), so it is the trusted source for
+    rank-capping — no need to re-derive from the CSV. Returns ``None`` when a
+    site carries no rank.
+    """
+    ctx = site.data.get("crawl_context") or {}
+    r = ctx.get("rank")
+    return int(r) if r is not None else None
+
+
 def _ep_pool_init(
     tracker_cache_dir: str,
     tracker_list_names: list[str],
@@ -76,17 +89,37 @@ def _ep_prefetch_chunk(
 
 class RawAccess:
     # ------------------------------------------------------------------ raw
-    def site_files(self) -> list[Path]:
+    @cached_property
+    def _site_files(self) -> list[Path]:
         return site_paths(self.data_dir)
+
+    def site_files(self) -> list[Path]:
+        return self._site_files
 
     @cached_property
     def _raw_sites(self) -> list[SiteRaw]:
         paths = self.site_files()
+        cap = getattr(self, "rank_cap", None)
         sites = []
+        dropped = 0
         for path in track(paths, desc="load sites", total=len(paths), unit=" sites"):
             site = load_site(path, self.data_dir)
-            if site is not None:
-                sites.append(site)
+            if site is None:
+                continue
+            # Drop the ">cap" crawl overrun. Only sites with a *known* rank
+            # exceeding the cap are removed; rank-less sites (e.g. non-ranked
+            # crawls) are always kept.
+            if cap is not None:
+                rank = _site_rank(site)
+                if rank is not None and rank > cap:
+                    dropped += 1
+                    continue
+            sites.append(site)
+        if cap is not None and dropped:
+            print(
+                f"[CookieDataset] rank-cap {cap:,}: kept {len(sites):,} sites, "
+                f"dropped {dropped:,} ranked beyond the cap"
+            )
         return sites
 
     def iter_raw_sites(self):

@@ -28,14 +28,16 @@ one place. Layout per key:
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import pickle
 from pathlib import Path
 
+import orjson
+
 import pandas as pd
 
 from .classifier import TIERS
+from .progress import bar
 
 # Bump when the label columns or classifier semantics change so old caches are
 # ignored even if the underlying cookies frame is unchanged.
@@ -84,29 +86,32 @@ def load(cache_dir: str, key: str) -> tuple[pd.DataFrame, dict] | None:
     if not p["meta"].exists():
         return None
     try:
-        meta = json.loads(p["meta"].read_text())
+        meta = orjson.loads(p["meta"].read_bytes())
         if meta.get("schema_version") != CLASSIFIED_SCHEMA_VERSION:
             return None
     except Exception:
         return None
     try:
-        if p["labels"].exists():
-            labels = pd.read_parquet(p["labels"])
-        elif p["labels_pkl"].exists():
-            with open(p["labels_pkl"], "rb") as fh:
-                labels = pickle.load(fh)
-        else:
-            return None
-        # Re-establish the ordered categorical (parquet/pickle round-trips may
-        # drop the ordering flag).
-        labels["tracker_tier"] = pd.Categorical(
-            labels["tracker_tier"], categories=TIERS, ordered=True
-        )
-        artifacts = {
-            "shared_groups": json.loads(p["shared"].read_text()),
-            "sync_events": json.loads(p["sync"].read_text()),
-            "cross_domain_reads": json.loads(p["reads"].read_text()),
-        }
+        with bar("load classified cache", total=2, unit=" steps", leave=False) as b:
+            if p["labels"].exists():
+                labels = pd.read_parquet(p["labels"])
+            elif p["labels_pkl"].exists():
+                with open(p["labels_pkl"], "rb") as fh:
+                    labels = pickle.load(fh)
+            else:
+                return None
+            b.update()
+            # Re-establish the ordered categorical (parquet/pickle round-trips may
+            # drop the ordering flag).
+            labels["tracker_tier"] = pd.Categorical(
+                labels["tracker_tier"], categories=TIERS, ordered=True
+            )
+            artifacts = {
+                "shared_groups": orjson.loads(p["shared"].read_bytes()),
+                "sync_events": orjson.loads(p["sync"].read_bytes()),
+                "cross_domain_reads": orjson.loads(p["reads"].read_bytes()),
+            }
+            b.update()
         return labels, artifacts
     except Exception:
         return None
@@ -142,15 +147,17 @@ def save(
 
     _atomic(
         p["shared"],
-        lambda tmp: Path(tmp).write_text(json.dumps(artifacts["shared_groups"])),
+        lambda tmp: Path(tmp).write_bytes(orjson.dumps(artifacts["shared_groups"])),
     )
     _atomic(
         p["sync"],
-        lambda tmp: Path(tmp).write_text(json.dumps(artifacts["sync_events"])),
+        lambda tmp: Path(tmp).write_bytes(orjson.dumps(artifacts["sync_events"])),
     )
     _atomic(
         p["reads"],
-        lambda tmp: Path(tmp).write_text(json.dumps(artifacts["cross_domain_reads"])),
+        lambda tmp: Path(tmp).write_bytes(
+            orjson.dumps(artifacts["cross_domain_reads"])
+        ),
     )
     meta = {
         **meta,
@@ -158,7 +165,12 @@ def save(
         "schema_version": CLASSIFIED_SCHEMA_VERSION,
         "n_labels": int(len(out)),
     }
-    _atomic(p["meta"], lambda tmp: Path(tmp).write_text(json.dumps(meta, indent=2)))
+    _atomic(
+        p["meta"],
+        lambda tmp: Path(tmp).write_bytes(
+            orjson.dumps(meta, option=orjson.OPT_INDENT_2)
+        ),
+    )
 
 
 def _atomic(dest: Path, write) -> None:

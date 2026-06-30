@@ -6,7 +6,7 @@ import sys
 import psutil
 
 from client.api import Browser
-from client.config import BrowserConfig, CrawlConfig
+from client.config import BrowserConfig, CrawlConfig, _BROWSER_USER_AGENTS
 from client.trackers import Detections, TrackerList
 from .engine import CrawlEngine, kill_orphaned_browsers
 
@@ -215,6 +215,7 @@ def main():
             intercept_cookie_reads=args.cookie_reads,
             browser_type=browser,
             classifier=classifier,
+            user_agent=_BROWSER_USER_AGENTS[browser],
         )
         for browser in browsers
     ]

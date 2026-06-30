@@ -59,6 +59,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="matching engine (hyperscan auto-falls back to re if unavailable)",
     )
     p.add_argument(
+        "--rank-cap",
+        default="100000",
+        help=(
+            "keep only sites within the first N entries of the ranking list "
+            "(crawl_context.rank <= N); drops the >N crawl overrun. "
+            "Pass 'none' or '0' to disable. Default: 100000"
+        ),
+    )
+    p.add_argument(
         "--rebuild",
         action="store_true",
         help="ignore existing caches and recompute from scratch",
@@ -66,12 +75,22 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _parse_rank_cap(value: str) -> int | None:
+    """Parse the --rank-cap CLI value into ``int | None`` (None disables)."""
+    if value is None or value.strip().lower() in {"none", "off", "0", ""}:
+        return None
+    return int(value)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    rank_cap = _parse_rank_cap(args.rank_cap)
+    print(f"[annotate] rank cap: {'disabled' if rank_cap is None else f'{rank_cap:,}'}")
 
     ds = CookieDataset(
         args.data,
         cache_dir=args.cache_dir,
+        rank_cap=rank_cap,
         n_workers=args.workers,
         rebuild=args.rebuild,
         engine=args.engine,

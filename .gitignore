@@ -21,3 +21,5 @@ profile_output/
 .analysis_cache/
 *.7z
 vpns/
+health_websites_1K.csv
+export_plots/
